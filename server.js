@@ -609,9 +609,9 @@ const server = http.createServer((req, res) => {
       deviceName: dev ? dev.deviceName : 'Western Tablet',
       localIp: dev ? dev.localIp : '--',
       meshIp: dev ? dev.meshIp : '',
-      cloudUrl: 'https://is.gd/western_applock_ksa',
+      cloudUrl: 'https://is.gd/western_applock_live',
       cloudConnected: onlineNow,
-      cloudStatus: 'Connected 🟢 (https://is.gd/western_applock_ksa)'
+      cloudStatus: 'Connected 🟢 (https://is.gd/western_applock_live)'
     });
   }
 
