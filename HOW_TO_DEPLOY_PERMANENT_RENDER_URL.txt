@@ -1,0 +1,59 @@
+================================================================================
+  HOW TO GET YOUR 100% PERMANENT 24/7 URL ON RENDER.COM ($0 / FREE FOREVER)
+  Permanent URL: https://westernapplockksa.onrender.com
+================================================================================
+
+Why do this?
+- NEVER changes (No more random trycloudflare links or broken redirects).
+- Runs 24/7 in the cloud even when your laptop is turned OFF or asleep.
+- All Samsung tablets auto-sync to it over Wi-Fi / 4G / 5G SIM cards automatically.
+- Accessible from any phone, PC, or tablet anywhere in the world.
+
+--------------------------------------------------------------------------------
+STEP 1: CREATE A FREE REPOSITORY ON GITHUB
+--------------------------------------------------------------------------------
+1. Go to https://github.com and sign in (or create a free account).
+2. Click "+" at top-right -> "New repository".
+3. Name it: westernapplock-cloud-server
+4. Choose "Public" or "Private" (either is fine).
+5. Do NOT check "Add a README file" (leave it blank).
+6. Click "Create repository".
+
+--------------------------------------------------------------------------------
+STEP 2: PUSH THIS CODE TO YOUR GITHUB (RUN ONCE IN CMD)
+--------------------------------------------------------------------------------
+Open Command Prompt (CMD) and run:
+
+  cd /d "D:\Last\3_Any_Network_Cloud_Server"
+  git remote add origin https://github.com/YOUR_GITHUB_USERNAME/westernapplock-cloud-server.git
+  git branch -M main
+  git push -u origin main
+
+(Replace YOUR_GITHUB_USERNAME with your actual GitHub username).
+
+--------------------------------------------------------------------------------
+STEP 3: DEPLOY ON RENDER.COM (2 MINUTES)
+--------------------------------------------------------------------------------
+1. Go to https://render.com and click "Get Started" -> Sign in with GitHub.
+2. In your Render Dashboard, click the blue button: "New +" -> "Web Service".
+3. Choose "Build and deploy from a Git repository".
+4. Select "westernapplock-cloud-server".
+5. Fill in the simple form:
+   - Name: westernapplockksa
+   - Region: Frankfurt (EU) or any region
+   - Branch: main
+   - Runtime: Node
+   - Build Command: (leave empty)
+   - Start Command: node server.js
+   - Instance Type: Free ($0/month)
+6. Click "Create Web Service".
+
+--------------------------------------------------------------------------------
+DONE! YOUR PERMANENT URL IS LIVE:
+--------------------------------------------------------------------------------
+👉 https://westernapplockksa.onrender.com
+
+- This link NEVER changes.
+- Tablets will connect to it automatically.
+- You can bookmark it on your phone or PC and open it anytime!
+================================================================================
