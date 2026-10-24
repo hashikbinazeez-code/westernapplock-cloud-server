@@ -200,8 +200,46 @@ function sendJson(res, statusCode, obj) {
   res.end(body);
 }
 
+const wsClients = new Map(); // deviceId -> Set of sockets
+
+function sendWsFrame(socket, opcode, payloadBuffer) {
+  if (!socket || socket.destroyed || socket.writableEnded) return;
+  const len = payloadBuffer.length;
+  let header;
+  if (len <= 125) {
+    header = Buffer.alloc(2);
+    header[0] = 0x80 | (opcode & 0x0f);
+    header[1] = len;
+  } else if (len <= 65535) {
+    header = Buffer.alloc(4);
+    header[0] = 0x80 | (opcode & 0x0f);
+    header[1] = 126;
+    header.writeUInt16BE(len, 2);
+  } else {
+    header = Buffer.alloc(10);
+    header[0] = 0x80 | (opcode & 0x0f);
+    header[1] = 127;
+    header.writeBigUInt64BE(BigInt(len), 2);
+  }
+  try {
+    socket.write(header);
+    socket.write(payloadBuffer);
+  } catch (_) {}
+}
+
+function sendWsText(socket, text) {
+  sendWsFrame(socket, 0x01, Buffer.from(text, 'utf8'));
+}
+
 function queueCommand(dev, cmdObj) {
   if (!dev) return false;
+  const sockets = wsClients.get(dev.deviceId);
+  if (sockets && sockets.size > 0) {
+    const text = JSON.stringify(cmdObj);
+    for (const s of sockets) {
+      sendWsText(s, text);
+    }
+  }
   dev.commandQueue.push(cmdObj);
   if (dev.commandQueue.length > 60) dev.commandQueue.shift();
   return true;
@@ -709,6 +747,10 @@ const server = http.createServer((req, res) => {
       targetInit.viewerLastSeenMs = Date.now();
       const initialFrame = targetInit.screenFrameBuffer || FALLBACK_JPEG;
       sendFrame(initialFrame);
+      const sockets = wsClients.get(targetInit.deviceId);
+      if (sockets) {
+        for (const s of sockets) sendWsText(s, JSON.stringify({ type: 'viewer', active: true }));
+      }
     }
 
     const interval = setInterval(() => {
@@ -722,7 +764,16 @@ const server = http.createServer((req, res) => {
       }
     }, 35);
 
-    req.on('close', () => clearInterval(interval));
+    req.on('close', () => {
+      clearInterval(interval);
+      const target = getTargetDevice(deviceId);
+      if (target) {
+        const sockets = wsClients.get(target.deviceId);
+        if (sockets) {
+          for (const s of sockets) sendWsText(s, JSON.stringify({ type: 'viewer', active: false }));
+        }
+      }
+    });
     return;
   }
 
@@ -2835,10 +2886,153 @@ function startLocalCustomDomainResponder() {
   } catch (_) {}
 }
 
+function handleWsUpgrade(req, socket, head) {
+  const parsedUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  const pathname = parsedUrl.pathname || '/';
+  const query = Object.fromEntries(parsedUrl.searchParams.entries());
+
+  if (pathname === '/ws/device') {
+    const key = req.headers['sec-websocket-key'];
+    if (!key) {
+      socket.destroy();
+      return;
+    }
+    const accept = crypto.createHash('sha1').update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
+    socket.write(
+      'HTTP/1.1 101 Switching Protocols\r\n' +
+      'Upgrade: websocket\r\n' +
+      'Connection: Upgrade\r\n' +
+      `Sec-WebSocket-Accept: ${accept}\r\n\r\n`
+    );
+
+    const deviceId = String(query.deviceId || 'WIG-DEFAULT').trim();
+    let dev = devices.get(deviceId);
+    if (!dev) {
+      dev = {
+        deviceId,
+        deviceName: 'Western Tablet',
+        model: 'Tablet',
+        localIp: '',
+        meshIp: '',
+        batteryPct: 100,
+        isScreenOn: true,
+        lastScreenOn: 'Just now',
+        remoteCode: DEFAULT_ADMIN_CODE,
+        screenFrameBuffer: null,
+        cameraFrameBuffer: null,
+        apps: [],
+        lastSeenMs: Date.now(),
+        viewerLastSeenMs: 0,
+        cameraActive: false,
+        cameraLens: 'front',
+        commandQueue: []
+      };
+      devices.set(deviceId, dev);
+    }
+
+    if (!wsClients.has(deviceId)) wsClients.set(deviceId, new Set());
+    wsClients.get(deviceId).add(socket);
+    console.log(`[WS] 🟢 Tablet WebSocket Connected: ${deviceId} (${req.socket?.remoteAddress || ''})`);
+
+    const viewerActive = (Date.now() - dev.viewerLastSeenMs) < 12000;
+    sendWsText(socket, JSON.stringify({ type: 'viewer', active: viewerActive }));
+
+    // Flush any pending commands immediately
+    if (dev.commandQueue.length > 0) {
+      const cmds = dev.commandQueue.splice(0, dev.commandQueue.length);
+      for (const cmd of cmds) {
+        sendWsText(socket, JSON.stringify(cmd));
+      }
+    }
+
+    let buf = Buffer.alloc(0);
+    socket.on('data', chunk => {
+      buf = Buffer.concat([buf, chunk]);
+      while (buf.length >= 2) {
+        const b0 = buf[0];
+        const b1 = buf[1];
+        const fin = (b0 & 0x80) !== 0;
+        const opcode = b0 & 0x0f;
+        const masked = (b1 & 0x80) !== 0;
+        let payloadLen = b1 & 0x7f;
+        let offset = 2;
+
+        if (payloadLen === 126) {
+          if (buf.length < 4) break;
+          payloadLen = buf.readUInt16BE(2);
+          offset = 4;
+        } else if (payloadLen === 127) {
+          if (buf.length < 10) break;
+          payloadLen = Number(buf.readBigUInt64BE(2));
+          offset = 10;
+        }
+
+        const maskLen = masked ? 4 : 0;
+        if (buf.length < offset + maskLen + payloadLen) break;
+
+        let payload = buf.subarray(offset + maskLen, offset + maskLen + payloadLen);
+        if (masked) {
+          const mask = buf.subarray(offset, offset + 4);
+          const unmasked = Buffer.allocUnsafe(payloadLen);
+          for (let i = 0; i < payloadLen; i++) {
+            unmasked[i] = payload[i] ^ mask[i % 4];
+          }
+          payload = unmasked;
+        }
+
+        buf = buf.subarray(offset + maskLen + payloadLen);
+
+        if (opcode === 0x08) {
+          socket.end();
+          break;
+        } else if (opcode === 0x09) {
+          sendWsFrame(socket, 0x0A, payload);
+        } else if (opcode === 0x02) {
+          // Binary JPEG frame from tablet!
+          dev.screenFrameBuffer = payload;
+          dev.lastSeenMs = Date.now();
+          syncCount++;
+        } else if (opcode === 0x01) {
+          // JSON status packet
+          try {
+            const data = JSON.parse(payload.toString('utf8'));
+            if (data.batteryPct !== undefined) dev.batteryPct = data.batteryPct;
+            if (data.isScreenOn !== undefined) dev.isScreenOn = Boolean(data.isScreenOn);
+            if (data.deviceName) dev.deviceName = data.deviceName;
+            if (data.model) dev.model = data.model;
+            if (data.localIp) dev.localIp = data.localIp;
+            if (data.remoteCode) dev.remoteCode = String(data.remoteCode);
+            if (Array.isArray(data.apps) && data.apps.length > 0) dev.apps = data.apps;
+            dev.lastSeenMs = Date.now();
+          } catch (_) {}
+        }
+      }
+    });
+
+    socket.on('close', () => {
+      const set = wsClients.get(deviceId);
+      if (set) {
+        set.delete(socket);
+        if (set.size === 0) wsClients.delete(deviceId);
+      }
+      console.log(`[WS] 🔴 Tablet WebSocket Disconnected: ${deviceId}`);
+    });
+
+    socket.on('error', () => {
+      socket.destroy();
+    });
+  } else {
+    socket.destroy();
+  }
+}
+
+server.on('upgrade', handleWsUpgrade);
+
 // Also listen on standard HTTP Port 80 so http://westernapplockksa works without :8080
 try {
   const port80Server = http.createServer(server.listeners('request')[0]);
   port80Server.on('error', () => {});
+  port80Server.on('upgrade', handleWsUpgrade);
   port80Server.listen(80, '0.0.0.0');
 } catch (_) {}
 
