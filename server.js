@@ -655,18 +655,38 @@ const server = http.createServer((req, res) => {
       'Content-Type': 'multipart/x-mixed-replace; boundary=frame'
     });
 
-    const interval = setInterval(() => {
-      const target = getTargetDevice(deviceId);
-      if (target) target.viewerLastSeenMs = Date.now();
-      const frame = (target && target.screenFrameBuffer) ? target.screenFrameBuffer : FALLBACK_JPEG;
+    let lastSentFrame = null;
+    let lastSentTime = 0;
+
+    const sendFrame = (frame) => {
       try {
         res.write(`--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${frame.length}\r\n\r\n`);
         res.write(frame);
         res.write('\r\n');
+        lastSentFrame = frame;
+        lastSentTime = Date.now();
       } catch (_) {
         clearInterval(interval);
       }
-    }, 180);
+    };
+
+    const targetInit = getTargetDevice(deviceId);
+    if (targetInit) {
+      targetInit.viewerLastSeenMs = Date.now();
+      const initialFrame = targetInit.screenFrameBuffer || FALLBACK_JPEG;
+      sendFrame(initialFrame);
+    }
+
+    const interval = setInterval(() => {
+      const target = getTargetDevice(deviceId);
+      if (!target) return;
+      target.viewerLastSeenMs = Date.now();
+      const frame = target.screenFrameBuffer || FALLBACK_JPEG;
+      const now = Date.now();
+      if (frame !== lastSentFrame || (now - lastSentTime >= 800)) {
+        sendFrame(frame);
+      }
+    }, 35);
 
     req.on('close', () => clearInterval(interval));
     return;
@@ -693,21 +713,32 @@ const server = http.createServer((req, res) => {
       'Content-Type': 'multipart/x-mixed-replace; boundary=frame'
     });
 
-    const interval = setInterval(() => {
-      const target = getTargetDevice(deviceId);
-      if (target) {
-        target.viewerLastSeenMs = Date.now();
-        target.cameraActive = true;
-      }
-      const frame = (target && target.cameraFrameBuffer) ? target.cameraFrameBuffer : FALLBACK_JPEG;
+    let lastSentCamFrame = null;
+    let lastSentCamTime = 0;
+
+    const sendCamFrame = (frame) => {
       try {
         res.write(`--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${frame.length}\r\n\r\n`);
         res.write(frame);
         res.write('\r\n');
+        lastSentCamFrame = frame;
+        lastSentCamTime = Date.now();
       } catch (_) {
         clearInterval(interval);
       }
-    }, 200);
+    };
+
+    const interval = setInterval(() => {
+      const target = getTargetDevice(deviceId);
+      if (!target) return;
+      target.viewerLastSeenMs = Date.now();
+      target.cameraActive = true;
+      const frame = target.cameraFrameBuffer || FALLBACK_JPEG;
+      const now = Date.now();
+      if (frame !== lastSentCamFrame || (now - lastSentCamTime >= 800)) {
+        sendCamFrame(frame);
+      }
+    }, 40);
 
     req.on('close', () => clearInterval(interval));
     return;
