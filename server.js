@@ -212,6 +212,9 @@ const FALLBACK_JPEG = Buffer.from(
   'base64'
 );
 
+let syncCount = 0;
+let lastSyncLogTime = Date.now();
+
 const server = http.createServer((req, res) => {
   const parsedUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   const pathname = parsedUrl.pathname || '/';
@@ -275,6 +278,15 @@ const server = http.createServer((req, res) => {
         if (payload.isScreenOn !== undefined) dev.isScreenOn = Boolean(payload.isScreenOn);
         if (payload.lastScreenOn) dev.lastScreenOn = payload.lastScreenOn;
         dev.lastSeenMs = Date.now();
+        syncCount++;
+        const nowSync = Date.now();
+        if (nowSync - lastSyncLogTime >= 3000) {
+          const isV = (nowSync - dev.viewerLastSeenMs) < 12000;
+          const fps = (syncCount / ((nowSync - lastSyncLogTime) / 1000)).toFixed(1);
+          console.log(`[SYNC STATS] Received ${syncCount} syncs in ${((nowSync - lastSyncLogTime)/1000).toFixed(1)}s (${fps} FPS) | hasFrame: ${Boolean(payload.screenFrame)} | viewerActive: ${isV}`);
+          syncCount = 0;
+          lastSyncLogTime = nowSync;
+        }
 
         if (payload.screenFrame) {
           dev.screenFrameBuffer = Buffer.from(payload.screenFrame, 'base64');
@@ -304,6 +316,28 @@ const server = http.createServer((req, res) => {
       } catch (e) {
         sendJson(res, 400, { success: false, error: 'Bad sync payload' });
       }
+    });
+    return;
+  }
+
+  // 1c. ULTRA FAST RAW BINARY FRAME STREAM ENDPOINT (POST /api/device/frame)
+  if (pathname === '/api/device/frame' && req.method === 'POST') {
+    const deviceId = String(query.deviceId || '').trim();
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => {
+      const dev = getTargetDevice(deviceId);
+      if (dev && chunks.length > 0) {
+        dev.screenFrameBuffer = Buffer.concat(chunks);
+        dev.lastSeenMs = Date.now();
+        syncCount++;
+      }
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-cache, no-store',
+        'Connection': 'keep-alive'
+      });
+      res.end();
     });
     return;
   }
