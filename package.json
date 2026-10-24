@@ -1,0 +1,19 @@
+{
+  "name": "western-applock-cloud-server",
+  "version": "1.5.53",
+  "description": "Western AppLock 24/7 Any-Network Cloud Relay Server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "western-applock",
+    "kiosk",
+    "cloud-relay"
+  ],
+  "author": "Western International Group",
+  "license": "ISC"
+}

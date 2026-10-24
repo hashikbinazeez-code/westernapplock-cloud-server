@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: westernapplockksa
+    env: node
+    plan: free
+    buildCommand: ""
+    startCommand: node server.js
+    envVars:
+      - key: ADMIN_CODE
+        value: 7866
