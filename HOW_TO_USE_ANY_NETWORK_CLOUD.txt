@@ -1,0 +1,79 @@
+================================================================================
+   WESTERN APPLOCK v1.5.53 — COMPLETE HOSTING, AUTO-SYNC & DEVICE IP GUIDE
+================================================================================
+
+FOLDER STRUCTURE INSIDE D:\Last:
+--------------------------------
+1. D:\Last\Western_AppLock_v1.5.53.apk       -> Final Release APK (v1.5.53)
+2. D:\Last\1_APK_File\                       -> APK files ready for OTA or manual install
+3. D:\Last\2_Portable_USB_Installer\         -> 1-Click USB Device Owner Installer (Install_AppLock.bat)
+4. D:\Last\3_Any_Network_Cloud_Server\       -> $0 Any-Network HTTPS Cloud Relay Server (Auto-Sync)
+5. D:\Last\4_Android_Source_Code\            -> Complete Android Studio Source Code (v1.5.53)
+
+================================================================================
+PART 1: EASIEST WAY — 1-CLICK AUTO-SYNC CLOUD SERVER ($0 COST + HTTPS)
+================================================================================
+With v1.5.53, you DO NOT even need to type any URL or IP into the tablet!
+Even if the tablet restarts, switches Wi-Fi/SIM card, OR your laptop restarts,
+the server automatically syncs its link to all tablets over the internet.
+
+Step 1 (On Your Laptop):
+  1. Open folder: D:\Last\3_Any_Network_Cloud_Server
+  2. Double-click: START_CLOUD_RELAY_SERVER.bat
+  3. It automatically:
+     - Starts the Cloud Server on your laptop
+     - Creates an encrypted https://xxxx.trycloudflare.com public link
+     - Sends that new link to all your tablets over the internet automatically
+     - Saves the public link in CURRENT_PUBLIC_HTTPS_LINK.txt (for mobile access)
+     - Opens your browser to http://localhost:3000
+
+Step 2 (Optional — Auto-Start When Laptop Restarts):
+  - Double-click: ENABLE_AUTO_START_WHEN_LAPTOP_RESTARTS.bat (once).
+  - Now whenever your laptop restarts, the server starts in the background and
+    reconnects all tablets automatically within 5–12 seconds!
+
+Step 3 (Control Your Tablets):
+  - On your laptop browser (http://localhost:3000) or from any phone/PC using the
+    link inside CURRENT_PUBLIC_HTTPS_LINK.txt:
+  - Enter PIN: 2580 (or Master Code: Wf@3125210946).
+  - Select your tablet from the dropdown at the top to view Live Screen +
+    Simultaneous Live Camera, send 10s Locked Emergency SOS, or lock/unlock apps!
+
+================================================================================
+PART 2: HOW TO CHECK THE TABLET'S IP ADDRESS & DEVICE ID (IF NEEDED)
+================================================================================
+On the Tablet:
+  1. Open Western AppLock (Home Screen).
+  2. Tap the 3-dot Menu icon (top-right corner).
+  3. Tap "Remote Screen Mirroring" and enter PIN: 2580.
+  4. You will see:
+     - Local Wi-Fi URL:  http://192.168.x.x:8254   (Same Wi-Fi direct access)
+     - Any-Net Mesh IP:  http://100.x.x.x:8254     (Tailscale/ZeroTier static IP)
+     - Cloud Device ID:  WIG-XXXXXX                (Permanent Tablet ID - never changes)
+
+================================================================================
+PART 3: ALTERNATIVE 24/7 HOSTING (RENDER.COM OR TAILSCALE — $0 FOREVER)
+================================================================================
+Option A — Render.com (24/7 Cloud Server When Laptop Is Off):
+  1. Upload server.js, package.json, and render.yaml from
+     D:\Last\3_Any_Network_Cloud_Server to a free GitHub repository.
+  2. Connect it to a free Web Service at https://render.com ($0/month).
+  3. Render automatically broadcasts its permanent https://xxxx.onrender.com URL
+     to all your tablets!
+
+Option B — Tailscale Mesh VPN (Permanent Static IP 100.x.x.x):
+  1. Install Tailscale on your PC and Tablet and sign in with the same email.
+  2. Western AppLock v1.5.53 automatically whitelists Tailscale in the background
+     while keeping the app hidden from the tablet user.
+  3. Open http://100.x.x.x:8254 from your PC browser anywhere in the world!
+
+================================================================================
+PART 4: WEB SECURITY FEATURES INCLUDED IN v1.5.53
+================================================================================
+- HTTPS TLS Encryption: All Cloud Relay connections use encrypted https://.
+- Brute-Force IP Lockout: 5 wrong PIN attempts locks that IP address for 15 minutes.
+- Signed Session Tokens: Raw PIN is never exposed in browser URLs after login;
+  uses a 256-bit SHA-256 session token valid for 12 hours.
+- 10-Second Hold Master Exit: Hold the 3-dot icon on the tablet for 10 seconds ->
+  enter Wf@3125210946 to unlock full original Samsung OS & quit launcher.
+================================================================================

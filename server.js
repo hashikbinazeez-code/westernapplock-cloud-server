@@ -42,7 +42,7 @@ function loadPersistedDevices() {
       const arr = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
       if (Array.isArray(arr)) {
         for (const item of arr) {
-          if (item && item.deviceId) {
+          if (item && item.deviceId && !String(item.deviceId).startsWith('TEST-')) {
             devices.set(item.deviceId, {
               deviceId: item.deviceId,
               deviceName: item.deviceName || item.model || 'Western Tablet',
@@ -73,6 +73,7 @@ function savePersistedDevices() {
   try {
     const out = [];
     for (const d of devices.values()) {
+      if (!d.deviceId || String(d.deviceId).startsWith('TEST-')) continue;
       out.push({
         deviceId: d.deviceId,
         deviceName: d.deviceName,
@@ -270,6 +271,9 @@ const server = http.createServer((req, res) => {
       try {
         const payload = JSON.parse(body);
         const deviceId = String(payload.deviceId || 'WIG-DEFAULT').trim();
+        if (deviceId.startsWith('TEST-')) {
+          return sendJson(res, 200, { success: true });
+        }
         let dev = devices.get(deviceId);
         let stateChanged = false;
         if (!dev) {
@@ -490,6 +494,7 @@ const server = http.createServer((req, res) => {
 
     const fleet = [];
     for (const d of devices.values()) {
+      if (!d.deviceId || String(d.deviceId).startsWith('TEST-')) continue;
       const online = d.lastSeenMs > 0 && ((Date.now() - d.lastSeenMs) < 15000);
       fleet.push({
         deviceId: d.deviceId,
@@ -529,6 +534,18 @@ const server = http.createServer((req, res) => {
   const dev = getTargetDevice(deviceId);
 
   // 4. ALL /api/admin/* ENDPOINTS
+  if (pathname === '/api/admin/remove-device') {
+    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized' });
+    const targetId = String(query.targetDeviceId || query.targetId || query.deviceId || '').trim();
+    if (targetId && devices.has(targetId)) {
+      devices.delete(targetId);
+      savePersistedDevices();
+      console.log(`[Admin] Removed device: ${targetId}`);
+      return sendJson(res, 200, { success: true, message: `Removed device ${targetId}` });
+    }
+    return sendJson(res, 404, { success: false, error: 'Device not found' });
+  }
+
   if (pathname === '/api/admin/touch') {
     if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized' });
     queueCommand(dev, {
@@ -2628,7 +2645,7 @@ function buildDashboardHtml() {
                 el.style.display = 'none';
               }
             };
-            updateSelectDropdown(sel, true);
+            updateSelectDropdown(sel, false);
             updateSelectDropdown(authSel, false);
           }
 
@@ -2906,6 +2923,10 @@ function handleWsUpgrade(req, socket, head) {
     );
 
     const deviceId = String(query.deviceId || 'WIG-DEFAULT').trim();
+    if (deviceId.startsWith('TEST-')) {
+      socket.destroy();
+      return;
+    }
     let dev = devices.get(deviceId);
     if (!dev) {
       dev = {
