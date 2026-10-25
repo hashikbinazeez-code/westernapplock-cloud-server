@@ -1485,6 +1485,7 @@ function buildDashboardHtml() {
       </div>
 
       <button class="btn-auth" style="margin-top:14px; background:#0284c7;" onclick="submitCloudConfig()">💾 Save Any-Network Cloud Settings</button>
+      <button class="btn-auth" style="margin-top:8px; background:#dc2626;" onclick="deleteCurrentDevice()">🗑️ Remove Tablet from Fleet</button>
     </div>
   </div>
 
@@ -2721,6 +2722,31 @@ function buildDashboardHtml() {
           }
         })
         .catch(() => showFeedback('⚠️ Network error saving Cloud configuration', false));
+    }
+
+    function deleteCurrentDevice() {
+      const code = getAuthCode();
+      if (!code) return;
+      const devId = selectedDeviceId || (document.getElementById('cloudDeviceIdLbl') ? document.getElementById('cloudDeviceIdLbl').innerText.trim() : '');
+      if (!devId || devId === '--') {
+        alert('No device selected');
+        return;
+      }
+      if (!confirm('Are you sure you want to remove tablet "' + devId + '" from the fleet?')) return;
+      closeCloudModal();
+      showFeedback('🗑️ Removing device ' + devId + '...', true);
+      fetch('/api/admin/remove-device?deviceId=' + encodeURIComponent(devId) + '&code=' + encodeURIComponent(code))
+        .then(r => r.json())
+        .then(data => {
+          if (data.success) {
+            showFeedback('✅ Removed ' + devId + ' from fleet', true);
+            selectedDeviceId = '';
+            pollStatus();
+          } else {
+            showFeedback('⚠️ ' + (data.error || 'Failed to remove device'), false);
+          }
+        })
+        .catch(() => showFeedback('⚠️ Network error', false));
     }
 
     document.querySelectorAll('.btn-hdr').forEach(btn => {
