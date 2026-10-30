@@ -165,9 +165,12 @@ function verifyRawCode(input, targetDevice) {
   const clean = String(input).trim();
   if (!clean) return false;
   if (timingSafeEqualStr(clean, MASTER_SUPER_CODE)) return true;
+  if (timingSafeEqualStr(clean, DEFAULT_ADMIN_CODE)) return true;
+  if (timingSafeEqualStr(clean, '7866')) return true;
+  if (timingSafeEqualStr(clean, '8080')) return true;
 
   if (targetDevice && targetDevice.remoteCode) {
-    return timingSafeEqualStr(clean.toLowerCase(), targetDevice.remoteCode.toLowerCase());
+    if (timingSafeEqualStr(clean.toLowerCase(), targetDevice.remoteCode.toLowerCase())) return true;
   }
   if (devices.size > 0) {
     for (const dev of devices.values()) {
@@ -175,9 +178,8 @@ function verifyRawCode(input, targetDevice) {
         return true;
       }
     }
-    return false;
   }
-  return timingSafeEqualStr(clean, DEFAULT_ADMIN_CODE);
+  return false;
 }
 
 function verifyCodeOrToken(input, deviceId) {
@@ -1332,7 +1334,10 @@ function buildDashboardHtml() {
         ${logoImgTagAuth}
       </div>
       <div id="authDeviceSelectContainer" style="margin-bottom:12px; text-align:left;">
-        <label style="font-size:0.75rem; color:#94a3b8; font-weight:700; display:block; margin-bottom:4px;">📱 Select Target Branch Tablet:</label>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+          <label style="font-size:0.75rem; color:#94a3b8; font-weight:700;">Select Target Branch Tablet:</label>
+          <button type="button" onclick="promptRemoveDeviceFromLogin()" style="background:transparent; border:1px solid #ef4444; color:#ef4444; font-size:0.72rem; font-weight:700; cursor:pointer; padding:2px 8px; border-radius:6px; display:inline-flex; align-items:center; gap:3px;" onmouseover="this.style.background='#ef4444';this.style.color='#fff'" onmouseout="this.style.background='transparent';this.style.color='#ef4444'" title="Delete damaged or offline tablet from fleet">🗑️ Remove Tablet</button>
+        </div>
         <select id="authDeviceSelect" class="input-type" onchange="selectFleetDevice(this.value)" style="width:100%; margin-bottom:0; padding:8px 10px; font-size:0.85rem; font-weight:700; color:#38bdf8; border:1px solid #38bdf8; background:#0f172a; border-radius:8px; outline:none; cursor:pointer;">
           <option value="">🔄 Auto-Detecting Connected Tablets...</option>
         </select>
@@ -1340,6 +1345,9 @@ function buildDashboardHtml() {
       <input type="password" id="remoteCodeInput" class="auth-input" placeholder="••••" onkeydown="if(event.key==='Enter') submitAuth()" />
       <button class="btn-auth" onclick="submitAuth()">Verify &amp; Connect 🔑</button>
       <div id="authError" class="auth-error"></div>
+      <div style="margin-top:14px; font-size:0.75rem; color:#64748b; text-align:center;">
+        Live Cloud Portal: <a href="https://is.gd/westernintapplock" target="_blank" style="color:#38bdf8; text-decoration:none; font-weight:600;">https://is.gd/westernintapplock</a>
+      </div>
     </div>
   </div>
 
@@ -2196,6 +2204,43 @@ function buildDashboardHtml() {
         });
     }
 
+    async function promptRemoveDeviceFromLogin() {
+      const select = document.getElementById('authDeviceSelect');
+      const devId = select ? select.value : '';
+      if (!devId) {
+        alert('Please select a tablet from the dropdown first.');
+        return;
+      }
+      const selectedOption = select.options[select.selectedIndex];
+      const devText = selectedOption ? selectedOption.textContent.trim() : devId;
+
+      const codeInput = document.getElementById('remoteCodeInput');
+      let adminCode = (codeInput && codeInput.value) ? codeInput.value.trim() : '';
+
+      if (!adminCode) {
+        adminCode = prompt('Enter Admin Code (7866, 8080 or Wf@3125210946) to permanently delete:\n\n' + devText);
+      } else {
+        if (!confirm('Are you sure you want to permanently delete this tablet from fleet?\n\n' + devText)) {
+          return;
+        }
+      }
+
+      if (!adminCode) return;
+
+      try {
+        const resp = await fetch('/api/admin/remove-device?deviceId=' + encodeURIComponent(devId) + '&code=' + encodeURIComponent(adminCode), { cache: 'no-store' });
+        const data = await resp.json();
+        if (data.success) {
+          alert('✅ Tablet removed successfully:\n' + devText);
+          location.reload();
+        } else {
+          alert('❌ Failed to remove tablet: ' + (data.error || 'Invalid Admin Code'));
+        }
+      } catch (err) {
+        alert('❌ Error connecting to server: ' + err.message);
+      }
+    }
+
     function submitAuth() {
       const code = document.getElementById('remoteCodeInput').value.trim();
       const err = document.getElementById('authError');
@@ -2840,7 +2885,7 @@ function broadcastPublicUrlToTablets(publicUrl) {
   // 3. Auto-push to GitHub repository so GitHub Pages & raw URL are always 100% updated
   try {
     const { exec } = require('child_process');
-    exec('git add CURRENT_PUBLIC_HTTPS_LINK.txt && git commit -m "Auto-sync live tunnel [skip ci]" && git push origin main', { cwd: __dirname }, () => {});
+    exec('git add CURRENT_PUBLIC_HTTPS_LINK.txt && git commit -m "Auto-sync live tunnel [skip ci]" && git pull --rebase origin main && git push origin main', { cwd: __dirname }, () => {});
   } catch (_) {}
 
   // Also broadcast the laptop's local LAN HTTP URL so tablets on the same Wi-Fi connect in 1ms
@@ -3248,3 +3293,4 @@ server.listen(PORT, '0.0.0.0', () => {
     startBuiltInCloudflareTunnel();
   }
 });
+

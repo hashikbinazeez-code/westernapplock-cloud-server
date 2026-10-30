@@ -1,0 +1,37 @@
+================================================================================
+          WESTERN APPLOCK - 1-CLICK CLOUD SERVER QUICK GUIDE
+================================================================================
+
+1. HOW TO START THE SERVER:
+   Double-click:  START_SERVER.bat
+   - Starts the server and Cloudflare tunnel.
+   - Automatically syncs to all tablets worldwide!
+   - Automatically opens: https://is.gd/westernintapplock
+   - Leave the black window open or minimized.
+
+2. HOW TO REMOVE A DAMAGED OR INACTIVE TABLET:
+   - On the login screen, select the tablet in the dropdown.
+   - Click "🗑️ Remove Tablet" right above the dropdown.
+   - Enter Admin Code: 7866 (or Master Code: Wf@3125210946).
+   - The tablet is permanently deleted from the fleet!
+
+3. HOW TO CHECK STATUS:
+   Double-click:  CHECK_STATUS.bat
+   - Shows if server is running and displays the live public URL.
+
+4. HOW TO STOP THE SERVER:
+   Double-click:  STOP_SERVER.bat
+
+5. AUTO-START ON LAPTOP BOOT:
+   Double-click:  ENABLE_AUTO_START.bat
+   - Configures Windows to start the server automatically on boot.
+
+--------------------------------------------------------------------------------
+ACCESS CODES & PASSWORDS:
+--------------------------------------------------------------------------------
+- Live Worldwide Link:    https://is.gd/westernintapplock
+- Local Laptop Link:       http://localhost:8080
+- Web Dashboard Code:      7866 (or 8080)
+- Tablet Master Super PIN: Wf@3125210946
+- Tablet Quick Unlock PIN: 78663786
+================================================================================
