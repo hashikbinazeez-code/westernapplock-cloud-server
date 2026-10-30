@@ -74,53 +74,70 @@
       const status = document.getElementById('status');
       const link = document.getElementById('manualLink');
 
-      // 1. Fetch latest live Cloudflare tunnel URL from ntfy.sh and verify it responds
-      try {
-        const res = await fetch('https://ntfy.sh/western_applock_sync_3125210946/raw?poll=1&since=all&_t=' + Date.now(), { cache: 'no-store' });
-        const text = await res.text();
-        const lines = text.trim().split('\n').map(s => s.trim()).filter(s => s.startsWith('https://'));
-        // Test the most recent URLs from newest to oldest
-        const seen = new Set();
-        for (let i = lines.length - 1; i >= 0 && seen.size < 3; i--) {
-          const candidate = lines[i];
-          if (seen.has(candidate)) continue;
-          seen.add(candidate);
-          try {
-            const ctrl = new AbortController();
-            setTimeout(() => ctrl.abort(), 2500);
-            const check = await fetch(candidate + '/api/status', { signal: ctrl.signal, cache: 'no-store' });
-            if (check && check.ok) {
-              status.textContent = 'Redirecting to live tablet monitor...';
-              link.href = candidate;
-              link.style.display = 'inline-block';
-              window.location.replace(candidate);
-              return;
-            }
-          } catch (_) {}
-        }
-        // If localhost:8080 is running on this laptop, open localhost:8080 directly
+      // Candidate discovery sources (GitHub Raw + primary ntfy + fallback ntfy)
+      const sources = [
+        'https://raw.githubusercontent.com/hashikbinazeez-code/westernapplock-cloud-server/main/CURRENT_PUBLIC_HTTPS_LINK.txt?_t=' + Date.now(),
+        'https://ntfy.sh/western_ksa_3125210946/raw?poll=1&since=all&_t=' + Date.now(),
+        'https://ntfy.sh/western_applock_sync_3125210946/raw?poll=1&since=all&_t=' + Date.now()
+      ];
+
+      const candidates = [];
+
+      for (const src of sources) {
         try {
-          const ctrlLocal = new AbortController();
-          setTimeout(() => ctrlLocal.abort(), 900);
-          const localResp = await fetch('http://localhost:8080/api/status', { signal: ctrlLocal.signal, mode: 'no-cors' });
-          if (localResp) {
-            window.location.replace('http://localhost:8080');
+          const ctrl = new AbortController();
+          setTimeout(() => ctrl.abort(), 2000);
+          const res = await fetch(src, { signal: ctrl.signal, cache: 'no-store' });
+          if (res && res.ok) {
+            const text = await res.text();
+            const urls = text.trim().split('\n')
+              .map(s => s.trim())
+              .filter(s => s.startsWith('https://') && !s.includes('error') && !s.includes('code'));
+            for (const u of urls.reverse()) {
+              if (!candidates.includes(u)) candidates.push(u);
+            }
+          }
+        } catch (_) {}
+      }
+
+      // Check if candidate responds
+      for (const candidate of candidates) {
+        try {
+          const ctrl = new AbortController();
+          setTimeout(() => ctrl.abort(), 2500);
+          const check = await fetch(candidate + '/api/status', { signal: ctrl.signal, cache: 'no-store' });
+          if (check && check.ok) {
+            status.textContent = 'Redirecting to live tablet monitor...';
+            link.href = candidate;
+            link.style.display = 'inline-block';
+            window.location.replace(candidate);
             return;
           }
         } catch (_) {}
-
-        if (lines.length > 0) {
-          const latest = lines[lines.length - 1];
-          link.href = latest;
-          link.style.display = 'inline-block';
-          window.location.replace(latest);
-          return;
-        }
-      } catch (e) {
-        console.error(e);
       }
 
-      window.location.replace('https://westernapplockksa.onrender.com');
+      // If running on local laptop, check localhost:8080 directly
+      try {
+        const ctrlLocal = new AbortController();
+        setTimeout(() => ctrlLocal.abort(), 900);
+        const localResp = await fetch('http://localhost:8080/api/status', { signal: ctrlLocal.signal, mode: 'no-cors' });
+        if (localResp) {
+          window.location.replace('http://localhost:8080');
+          return;
+        }
+      } catch (_) {}
+
+      if (candidates.length > 0) {
+        link.href = candidates[0];
+        link.style.display = 'inline-block';
+        window.location.replace(candidates[0]);
+        return;
+      }
+
+      status.textContent = 'Cloud server is offline. Please start it on your PC or wait for reconnect.';
+      link.href = 'https://westernapplockksa.onrender.com';
+      link.textContent = 'Open Cloud Portal Backup';
+      link.style.display = 'inline-block';
     })();
   </script>
 </body>

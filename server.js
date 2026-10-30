@@ -17,7 +17,8 @@ const path = require('path');
 const PORT = process.env.PORT || 8080;
 const MASTER_SUPER_CODE = 'Wf@3125210946';
 const DEFAULT_ADMIN_CODE = process.env.ADMIN_CODE || '7866';
-const AUTO_SYNC_TOPIC = 'western_applock_sync_3125210946';
+const AUTO_SYNC_TOPIC = 'western_ksa_3125210946';
+const LEGACY_SYNC_TOPIC = 'western_applock_sync_3125210946';
 const STATE_FILE = path.join(__dirname, 'devices_state.json');
 
 let currentPublicHttpsUrl = process.env.RENDER_EXTERNAL_URL || '';
@@ -2804,7 +2805,8 @@ function broadcastPublicUrlToTablets(publicUrl) {
     fs.writeFileSync(path.join(__dirname, 'CURRENT_PUBLIC_HTTPS_LINK.txt'), currentPublicHttpsUrl + '\r\n', 'utf8');
   } catch (_) {}
 
-  const req = https.request({
+  // 1. Publish to primary ntfy topic (western_ksa_3125210946)
+  const req1 = https.request({
     hostname: 'ntfy.sh',
     port: 443,
     path: '/' + AUTO_SYNC_TOPIC,
@@ -2813,12 +2815,33 @@ function broadcastPublicUrlToTablets(publicUrl) {
       'Content-Type': 'text/plain',
       'Content-Length': Buffer.byteLength(currentPublicHttpsUrl)
     }
-  }, (res) => {
-    res.on('data', () => {});
-  });
-  req.on('error', () => {});
-  req.write(currentPublicHttpsUrl);
-  req.end();
+  }, (res) => { res.on('data', () => {}); });
+  req1.on('error', () => {});
+  req1.write(currentPublicHttpsUrl);
+  req1.end();
+
+  // 2. Publish to legacy ntfy topic
+  try {
+    const req2 = https.request({
+      hostname: 'ntfy.sh',
+      port: 443,
+      path: '/' + LEGACY_SYNC_TOPIC,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain',
+        'Content-Length': Buffer.byteLength(currentPublicHttpsUrl)
+      }
+    }, (res) => { res.on('data', () => {}); });
+    req2.on('error', () => {});
+    req2.write(currentPublicHttpsUrl);
+    req2.end();
+  } catch (_) {}
+
+  // 3. Auto-push to GitHub repository so GitHub Pages & raw URL are always 100% updated
+  try {
+    const { exec } = require('child_process');
+    exec('git add CURRENT_PUBLIC_HTTPS_LINK.txt && git commit -m "Auto-sync live tunnel [skip ci]" && git push origin main', { cwd: __dirname }, () => {});
+  } catch (_) {}
 
   // Also broadcast the laptop's local LAN HTTP URL so tablets on the same Wi-Fi connect in 1ms
   const lanIp = getLocalLanIpAddress();
