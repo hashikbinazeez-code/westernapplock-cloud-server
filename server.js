@@ -903,6 +903,16 @@ const server = http.createServer((req, res) => {
 });
 
 function buildDashboardHtml() {
+  let initialDeviceOptions = '';
+  for (const dev of devices.values()) {
+    if (!dev.deviceId || String(dev.deviceId).startsWith('TEST-')) continue;
+    const online = dev.lastSeenMs > 0 && ((Date.now() - dev.lastSeenMs) < 15000);
+    const ipStr = dev.localIp ? (' • IP: ' + dev.localIp) : '';
+    initialDeviceOptions += '<option value="' + dev.deviceId + '">📱 ' + (online ? '🟢 ' : '🔴 ') + (dev.deviceName || dev.deviceId) + ' [' + dev.deviceId + ']' + ipStr + ' • 🔋' + (dev.batteryPct !== undefined ? dev.batteryPct : 100) + '%</option>\n';
+  }
+  if (!initialDeviceOptions) {
+    initialDeviceOptions = '<option value="">🔄 Waiting for Tablets to Connect...</option>';
+  }
   const logoImgTagAuth = cachedLogoBase64
     ? `<div style="background:#ffffff; padding:15px; border-radius:12px; display:inline-block; margin-bottom:10px;"><img src="data:image/png;base64,${cachedLogoBase64}" alt="Western Logo" style="max-width:140px; height:auto; display:block; margin:0 auto;" /></div>`
     : `<div style="font-size:2.5rem; margin-bottom:8px;">🏢</div>`;
@@ -1339,7 +1349,7 @@ function buildDashboardHtml() {
           <button type="button" onclick="promptRemoveDeviceFromLogin()" style="background:transparent; border:1px solid #ef4444; color:#ef4444; font-size:0.72rem; font-weight:700; cursor:pointer; padding:2px 8px; border-radius:6px; display:inline-flex; align-items:center; gap:3px;" onmouseover="this.style.background='#ef4444';this.style.color='#fff'" onmouseout="this.style.background='transparent';this.style.color='#ef4444'" title="Delete damaged or offline tablet from fleet">🗑️ Remove Tablet</button>
         </div>
         <select id="authDeviceSelect" class="input-type" onchange="selectFleetDevice(this.value)" style="width:100%; margin-bottom:0; padding:8px 10px; font-size:0.85rem; font-weight:700; color:#38bdf8; border:1px solid #38bdf8; background:#0f172a; border-radius:8px; outline:none; cursor:pointer;">
-          <option value="">🔄 Auto-Detecting Connected Tablets...</option>
+          ${initialDeviceOptions}
         </select>
       </div>
       <input type="password" id="remoteCodeInput" class="auth-input" placeholder="••••" onkeydown="if(event.key==='Enter') submitAuth()" />
@@ -1520,7 +1530,9 @@ function buildDashboardHtml() {
       </div>
 
       <div class="header-badges">
-        <select id="fleetSelect" class="device-info" onchange="selectFleetDevice(this.value)" title="Switch Active Tablet" style="display:inline-flex; cursor:pointer; outline:none; border-color:#38bdf8; color:#38bdf8; font-weight:700;"></select>
+        <select id="fleetSelect" class="device-info" onchange="selectFleetDevice(this.value)" title="Switch Active Tablet" style="display:inline-flex; cursor:pointer; outline:none; border-color:#38bdf8; color:#38bdf8; font-weight:700;">
+          ${initialDeviceOptions}
+        </select>
         <div class="device-info" id="headerDeviceName">📱 Shola Test Tab</div>
         <div class="device-info" id="headerBattery">🔋 --</div>
         <div class="device-info green" id="statScreen">📱 Screen: ON</div>
@@ -2230,6 +2242,32 @@ function buildDashboardHtml() {
       try {
         const resp = await fetch('/api/admin/remove-device?deviceId=' + encodeURIComponent(devId) + '&code=' + encodeURIComponent(adminCode), { cache: 'no-store' });
         const data = await resp.json();
+          // Immediate device dropdown sync
+          const sel = document.getElementById('fleetSelect');
+          const authSel = document.getElementById('authDeviceSelect');
+          if (data.fleet && data.fleet.length > 0) {
+            if (!selectedDeviceId) {
+              selectedDeviceId = data.fleet[0].deviceId;
+            }
+            const updateSelectDropdown = (el, isHeader) => {
+              if (!el) return;
+              el.style.display = isHeader ? 'inline-flex' : 'block';
+              if (document.activeElement !== el) {
+                const currentVal = el.value || selectedDeviceId;
+                el.innerHTML = '';
+                data.fleet.forEach(t => {
+                  const opt = document.createElement('option');
+                  opt.value = t.deviceId;
+                  opt.selected = (t.deviceId === currentVal);
+                  const ipStr = t.localIp ? (' • IP: ' + t.localIp) : '';
+                  opt.textContent = '📱 ' + (t.online ? '🟢 ' : '🔴 ') + t.deviceName + ' [' + t.deviceId + ']' + ipStr + ' • 🔋' + t.batteryPct + '%';
+                  el.appendChild(opt);
+                });
+              }
+            };
+            updateSelectDropdown(sel, true);
+            updateSelectDropdown(authSel, false);
+          }
         if (data.success) {
           alert('✅ Tablet removed successfully:\n' + devText);
           location.reload();
