@@ -3,30 +3,21 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>westernintapplock.cloudflare • Western AppLock KSA</title>
+  <title>Western AppLock KSA - Live Cloud Portal</title>
   <style>
     * { box-sizing: border-box; }
-    html, body {
+    body {
       margin: 0;
       padding: 0;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
       background: #0b1120;
       color: #f8fafc;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }
-    #splash {
-      position: fixed;
-      inset: 0;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      background: #0b1120;
-      z-index: 10;
+      height: 100vh;
       text-align: center;
-      padding: 20px;
     }
     .card {
       background: #1e293b;
@@ -34,7 +25,7 @@
       border-radius: 20px;
       padding: 36px 28px;
       max-width: 420px;
-      width: 100%;
+      width: 90%;
       box-shadow: 0 25px 60px rgba(0,0,0,0.7);
     }
     .logo {
@@ -57,65 +48,79 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     h2 { margin: 0 0 6px; font-size: 1.3rem; color: #fff; }
     p { margin: 0; font-size: 0.9rem; color: #94a3b8; }
-    #portalFrame {
-      position: fixed;
-      inset: 0;
-      width: 100vw;
-      height: 100vh;
-      border: none;
-      margin: 0;
-      padding: 0;
-      display: none;
-      z-index: 20;
-      background: #0b1120;
+    .btn {
+      display: inline-block;
+      margin-top: 18px;
+      padding: 12px 24px;
+      background: #0284c7;
+      color: #fff;
+      font-weight: 700;
+      text-decoration: none;
+      border-radius: 10px;
     }
   </style>
 </head>
 <body>
-  <div id="splash">
-    <div class="card">
-      <img src="logo_western.png" alt="Western AppLock" class="logo" onerror="this.style.display='none'" />
-      <h2>Western AppLock KSA</h2>
-      <div id="loader" class="spinner"></div>
-      <p id="status">Connecting to Western International Cloud Portal...</p>
-    </div>
+  <div class="card">
+    <img src="logo_western.png" alt="Western AppLock" class="logo" onerror="this.style.display='none'" />
+    <h2>Western AppLock KSA</h2>
+    <div id="loader" class="spinner"></div>
+    <p id="status">Connecting to live Western International Cloud Portal...</p>
+    <a id="manualLink" class="btn" style="display:none;" href="#">Open Cloud Portal</a>
   </div>
-  <iframe id="portalFrame" allow="fullscreen; clipboard-read; clipboard-write"></iframe>
 
   <script>
     (async function() {
       const status = document.getElementById('status');
-      const splash = document.getElementById('splash');
-      const frame = document.getElementById('portalFrame');
+      const link = document.getElementById('manualLink');
 
-      function openInMaskFrame(url) {
-        try {
-          history.replaceState(null, 'westernintapplock.cloudflare', window.location.pathname);
-        } catch (_) {}
-        frame.src = url;
-        frame.style.display = 'block';
-        frame.onload = () => {
-          splash.style.display = 'none';
-        };
-        setTimeout(() => {
-          splash.style.display = 'none';
-        }, 1800);
-      }
-
+      // 1. Fetch latest live Cloudflare tunnel URL from ntfy.sh and verify it responds
       try {
         const res = await fetch('https://ntfy.sh/western_applock_sync_3125210946/raw?poll=1&since=all&_t=' + Date.now(), { cache: 'no-store' });
         const text = await res.text();
         const lines = text.trim().split('\n').map(s => s.trim()).filter(s => s.startsWith('https://'));
+        // Test the most recent URLs from newest to oldest
+        const seen = new Set();
+        for (let i = lines.length - 1; i >= 0 && seen.size < 3; i--) {
+          const candidate = lines[i];
+          if (seen.has(candidate)) continue;
+          seen.add(candidate);
+          try {
+            const ctrl = new AbortController();
+            setTimeout(() => ctrl.abort(), 2500);
+            const check = await fetch(candidate + '/api/status', { signal: ctrl.signal, cache: 'no-store' });
+            if (check && check.ok) {
+              status.textContent = 'Redirecting to live tablet monitor...';
+              link.href = candidate;
+              link.style.display = 'inline-block';
+              window.location.replace(candidate);
+              return;
+            }
+          } catch (_) {}
+        }
+        // If localhost:8080 is running on this laptop, open localhost:8080 directly
+        try {
+          const ctrlLocal = new AbortController();
+          setTimeout(() => ctrlLocal.abort(), 900);
+          const localResp = await fetch('http://localhost:8080/api/status', { signal: ctrlLocal.signal, mode: 'no-cors' });
+          if (localResp) {
+            window.location.replace('http://localhost:8080');
+            return;
+          }
+        } catch (_) {}
+
         if (lines.length > 0) {
-          const targetUrl = lines[lines.length - 1];
-          openInMaskFrame(targetUrl);
+          const latest = lines[lines.length - 1];
+          link.href = latest;
+          link.style.display = 'inline-block';
+          window.location.replace(latest);
           return;
         }
       } catch (e) {
         console.error(e);
       }
 
-      openInMaskFrame('https://westernapplockksa.onrender.com');
+      window.location.replace('https://westernapplockksa.onrender.com');
     })();
   </script>
 </body>

@@ -1485,9 +1485,11 @@ function buildDashboardHtml() {
 
       <label style="font-size:0.8rem; color:#cbd5e1; display:block; margin-top:8px; font-weight:700;">🏢 Tablet Branch / Device Name:</label>
       <input type="text" id="cloudDeviceNameInput" class="input-type" placeholder="e.g. KSA-RIYADH-TAB01" style="width:100%; margin-top:4px;" />
-      <input type="hidden" id="cloudRelayUrlInput" value="" />
 
-      <button class="btn-auth" style="margin-top:14px; background:#0284c7;" onclick="submitCloudConfig()">💾 Save Branch Name</button>
+      <label style="font-size:0.8rem; color:#cbd5e1; display:block; margin-top:10px; font-weight:700;">🔗 Cloud Relay URL (HTTPS):</label>
+      <input type="text" id="cloudRelayUrlInput" class="input-type" placeholder="https://is.gd/westernintapplock" style="width:100%; margin-top:4px;" />
+
+      <button class="btn-auth" style="margin-top:14px; background:#0284c7;" onclick="submitCloudConfig()">💾 Save Cloud Configuration</button>
       <button class="btn-auth" style="margin-top:8px; background:#dc2626;" onclick="deleteCurrentDevice()">🗑️ Remove Tablet from Fleet</button>
     </div>
   </div>
@@ -2769,6 +2771,27 @@ function buildDashboardHtml() {
 </html>`;
 }
 
+function getLocalLanIpAddress() {
+  try {
+    const os = require('os');
+    const nets = os.networkInterfaces();
+    let fallbackIp = '127.0.0.1';
+    for (const name of Object.keys(nets)) {
+      for (const net of nets[name] || []) {
+        if (net.family === 'IPv4' && !net.internal) {
+          if (!net.address.startsWith('192.168.137.')) {
+            return net.address;
+          }
+          fallbackIp = net.address;
+        }
+      }
+    }
+    return fallbackIp;
+  } catch (_) {
+    return '127.0.0.1';
+  }
+}
+
 function broadcastPublicUrlToTablets(publicUrl) {
   if (!publicUrl || !publicUrl.startsWith('http')) return;
   currentPublicHttpsUrl = publicUrl.replace(/\/+$/, '');
@@ -2792,7 +2815,28 @@ function broadcastPublicUrlToTablets(publicUrl) {
   req.write(currentPublicHttpsUrl);
   req.end();
 
-  const htmlRedirect = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>westernintapplock.cloudflare • Western AppLock KSA</title><style>html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#0b1120;}iframe{position:fixed;inset:0;width:100vw;height:100vh;border:none;margin:0;padding:0;}</style></head><body><iframe src="${currentPublicHttpsUrl}" allow="fullscreen; clipboard-read; clipboard-write"></iframe></body></html>`;
+  // Also broadcast the laptop's local LAN HTTP URL so tablets on the same Wi-Fi connect in 1ms
+  const lanIp = getLocalLanIpAddress();
+  if (lanIp && lanIp !== '127.0.0.1') {
+    const lanUrl = `http://${lanIp}:${PORT}`;
+    const reqLan = https.request({
+      hostname: 'ntfy.sh',
+      port: 443,
+      path: '/western_applock_lan_3125210946',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain',
+        'Content-Length': Buffer.byteLength(lanUrl)
+      }
+    }, (res) => {
+      res.on('data', () => {});
+    });
+    reqLan.on('error', () => {});
+    reqLan.write(lanUrl);
+    reqLan.end();
+  }
+
+  const htmlRedirect = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${currentPublicHttpsUrl}"><script>window.location.replace('${currentPublicHttpsUrl}');</script></head><body style="background:#0b1120;color:#fff;font-family:sans-serif;text-align:center;padding-top:20vh;">Connecting to Western AppLock KSA...</body></html>`;
   const req2 = https.request({
     hostname: 'ntfy.sh',
     port: 443,
@@ -2810,16 +2854,26 @@ function broadcastPublicUrlToTablets(publicUrl) {
   req2.end();
 }
 
+let activeCloudflaredProcess = null;
+let tunnelFailureCount = 0;
+
 function startBuiltInCloudflareTunnel() {
   if (process.env.RENDER || process.env.RENDER_EXTERNAL_URL || process.platform !== 'win32') return;
   const { spawn } = require('child_process');
   const exePath = path.join(__dirname, 'cloudflared.exe');
   if (!fs.existsSync(exePath)) return;
 
+  if (activeCloudflaredProcess) {
+    try { activeCloudflaredProcess.kill(); } catch (_) {}
+    activeCloudflaredProcess = null;
+  }
+
   console.log('[*] Starting built-in Free HTTPS Cloudflare Tunnel...');
   const child = spawn(exePath, ['tunnel', '--url', 'http://localhost:' + PORT], {
     stdio: ['ignore', 'pipe', 'pipe']
   });
+  activeCloudflaredProcess = child;
+  tunnelFailureCount = 0;
 
   const handleOutput = (chunk) => {
     const text = chunk.toString('utf8');
@@ -2839,29 +2893,90 @@ function startBuiltInCloudflareTunnel() {
   child.stdout.on('data', handleOutput);
   child.stderr.on('data', handleOutput);
   child.on('exit', () => {
-    setTimeout(startBuiltInCloudflareTunnel, 5000);
+    if (activeCloudflaredProcess === child) {
+      activeCloudflaredProcess = null;
+      setTimeout(startBuiltInCloudflareTunnel, 3000);
+    }
   });
 }
+
+// Auto-healing watchdog: verify every 20s that the active Cloudflare tunnel is still DNS-resolvable & alive
+setInterval(() => {
+  if (process.env.RENDER || process.env.RENDER_EXTERNAL_URL || process.platform !== 'win32') return;
+  if (!currentPublicHttpsUrl || !currentPublicHttpsUrl.includes('.trycloudflare.com')) return;
+  const dns = require('dns');
+  let host = '';
+  try {
+    host = new URL(currentPublicHttpsUrl).hostname;
+  } catch (_) {
+    return;
+  }
+  dns.lookup('cloudflare.com', (netErr) => {
+    if (netErr) return; // Laptop itself is offline; wait until internet returns
+    dns.lookup(host, (dnsErr) => {
+      if (dnsErr) {
+        console.log(`[!] Cloudflare tunnel DNS expired (${host}). Auto-restarting tunnel...`);
+        currentPublicHttpsUrl = '';
+        startBuiltInCloudflareTunnel();
+        return;
+      }
+      const req = https.get(currentPublicHttpsUrl + '/api/status', { timeout: 6000 }, (res) => {
+        res.on('data', () => {});
+        if (res.statusCode >= 200 && res.statusCode < 400) {
+          tunnelFailureCount = 0;
+        } else {
+          tunnelFailureCount++;
+          if (tunnelFailureCount >= 2) {
+            console.log(`[!] Cloudflare tunnel returned HTTP ${res.statusCode}. Auto-restarting tunnel...`);
+            currentPublicHttpsUrl = '';
+            startBuiltInCloudflareTunnel();
+          }
+        }
+      });
+      req.on('timeout', () => {
+        req.destroy();
+        tunnelFailureCount++;
+        if (tunnelFailureCount >= 2) {
+          console.log('[!] Cloudflare tunnel timed out. Auto-restarting tunnel...');
+          currentPublicHttpsUrl = '';
+          startBuiltInCloudflareTunnel();
+        }
+      });
+      req.on('error', () => {
+        tunnelFailureCount++;
+        if (tunnelFailureCount >= 2) {
+          console.log('[!] Cloudflare tunnel unreachable. Auto-restarting tunnel...');
+          currentPublicHttpsUrl = '';
+          startBuiltInCloudflareTunnel();
+        }
+      });
+    });
+  });
+}, 20 * 1000);
 
 setInterval(() => {
   if (currentPublicHttpsUrl) {
     broadcastPublicUrlToTablets(currentPublicHttpsUrl);
   }
-}, 10 * 60 * 1000);
+}, 5 * 60 * 1000);
 
 function startLocalCustomDomainResponder() {
   try {
     const dgram = require('dgram');
-    const os = require('os');
-    const getLanIp = () => {
-      const nets = os.networkInterfaces();
-      for (const name of Object.keys(nets)) {
-        for (const net of nets[name] || []) {
-          if (net.family === 'IPv4' && !net.internal) return net.address;
-        }
+    const getLanIp = () => getLocalLanIpAddress();
+
+    // 0. UDP Port 8255 LAN Auto-Discovery Responder for Tablets on Same Wi-Fi
+    const disc = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+    disc.on('error', () => {});
+    disc.on('message', (msg, rinfo) => {
+      if (!msg) return;
+      const str = msg.toString('utf8').trim();
+      if (str.includes('WESTERN_DISCOVER_SERVER')) {
+        const reply = Buffer.from(`WESTERN_SERVER:http://${getLanIp()}:${PORT}`, 'utf8');
+        disc.send(reply, 0, reply.length, rinfo.port, rinfo.address);
       }
-      return '127.0.0.1';
-    };
+    });
+    disc.bind(8255, '0.0.0.0');
 
     // 1. mDNS responder (UDP 5353, 224.0.0.251) for westernintapplock.local & westernapplockksa.local
     const mdns = dgram.createSocket({ type: 'udp4', reuseAddr: true });
