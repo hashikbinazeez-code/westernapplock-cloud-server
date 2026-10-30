@@ -265,6 +265,25 @@ const FALLBACK_JPEG = Buffer.from(
 let syncCount = 0;
 let lastSyncLogTime = Date.now();
 
+function getFleetList() {
+  const fleet = [];
+  for (const d of devices.values()) {
+    if (!d.deviceId || String(d.deviceId).startsWith('TEST-')) continue;
+    const online = d.lastSeenMs > 0 && ((Date.now() - d.lastSeenMs) < 15000);
+    fleet.push({
+      deviceId: d.deviceId,
+      deviceName: d.deviceName || d.deviceId,
+      model: d.model || 'Western Tablet',
+      localIp: d.localIp || '',
+      meshIp: d.meshIp || '',
+      batteryPct: (d.batteryPct !== undefined && d.batteryPct !== null) ? d.batteryPct : 100,
+      isScreenOn: Boolean(d.isScreenOn),
+      online
+    });
+  }
+  return fleet;
+}
+
 const server = http.createServer((req, res) => {
   const parsedUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   const pathname = parsedUrl.pathname || '/';
@@ -546,15 +565,42 @@ const server = http.createServer((req, res) => {
 
   // 4. ALL /api/admin/* ENDPOINTS
   if (pathname === '/api/admin/remove-device') {
-    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized' });
+    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized: Admin Code Required (7866)' });
     const targetId = String(query.targetDeviceId || query.targetId || query.deviceId || '').trim();
-    if (targetId && devices.has(targetId)) {
-      devices.delete(targetId);
+    const action = String(query.action || '').trim();
+
+    if (action === 'remove_all_offline') {
+      let count = 0;
+      for (const [id, d] of devices.entries()) {
+        const online = d.lastSeenMs > 0 && ((Date.now() - d.lastSeenMs) < 15000);
+        if (!online) {
+          devices.delete(id);
+          count++;
+        }
+      }
       savePersistedDevices();
-      console.log(`[Admin] Removed device: ${targetId}`);
-      return sendJson(res, 200, { success: true, message: `Removed device ${targetId}` });
+      console.log(`[Admin] Removed ${count} offline tablets from fleet`);
+      return sendJson(res, 200, { success: true, message: `Removed ${count} offline tablets from fleet`, fleet: getFleetList() });
     }
-    return sendJson(res, 404, { success: false, error: 'Device not found' });
+
+    if (targetId) {
+      let foundKey = null;
+      for (const k of devices.keys()) {
+        if (k.toLowerCase() === targetId.toLowerCase()) {
+          foundKey = k;
+          break;
+        }
+      }
+      if (foundKey) {
+        devices.delete(foundKey);
+        savePersistedDevices();
+        console.log(`[Admin] Removed device: ${foundKey}`);
+        return sendJson(res, 200, { success: true, message: `Removed tablet ${foundKey} from fleet`, fleet: getFleetList() });
+      } else {
+        return sendJson(res, 200, { success: true, message: `Tablet ${targetId} is no longer in fleet`, fleet: getFleetList() });
+      }
+    }
+    return sendJson(res, 400, { success: false, error: 'No deviceId specified' });
   }
 
   if (pathname === '/api/admin/touch') {
@@ -886,6 +932,14 @@ const server = http.createServer((req, res) => {
 
   // 8. MAIN WEB PORTAL UI (100% Identical to Tablet Local Host Web Portal!)
   if (pathname === '/' || pathname.startsWith('/index')) {
+    const hostHeader = String(req.headers.host || '');
+    if ((hostHeader.includes('localhost') || hostHeader.includes('127.0.0.1')) && !query.local) {
+      res.writeHead(302, {
+        'Location': 'https://is.gd/westernintapplock',
+        'Cache-Control': 'no-cache, no-store, must-revalidate'
+      });
+      return res.end();
+    }
     const html = buildDashboardHtml();
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
@@ -893,7 +947,7 @@ const server = http.createServer((req, res) => {
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer',
       'Cache-Control': 'no-store, no-cache, must-revalidate',
-      'Content-Length': Buffer.byteLength(html)
+      'Content-Security-Policy': "frame-ancestors 'self' https://*.github.io https://*.trycloudflare.com *;"
     });
     return res.end(html);
   }
@@ -907,11 +961,14 @@ function buildDashboardHtml() {
   for (const dev of devices.values()) {
     if (!dev.deviceId || String(dev.deviceId).startsWith('TEST-')) continue;
     const online = dev.lastSeenMs > 0 && ((Date.now() - dev.lastSeenMs) < 15000);
-    const ipStr = dev.localIp ? (' • IP: ' + dev.localIp) : '';
-    initialDeviceOptions += '<option value="' + dev.deviceId + '">📱 ' + (online ? '🟢 ' : '🔴 ') + (dev.deviceName || dev.deviceId) + ' [' + dev.deviceId + ']' + ipStr + ' • 🔋' + (dev.batteryPct !== undefined ? dev.batteryPct : 100) + '%</option>\n';
+    const ipStr = dev.localIp ? (' &bull; IP: ' + dev.localIp) : '';
+    const statusDot = online ? '&#128994;' : '&#128308;';
+    const statusText = online ? 'Online' : 'Offline';
+    const batPct = (dev.batteryPct !== undefined && dev.batteryPct !== null) ? dev.batteryPct : 100;
+    initialDeviceOptions += `<option value="${dev.deviceId}">&#128241; ${statusDot} ${dev.deviceName || dev.deviceId} [${dev.deviceId}]${ipStr} &bull; &#128267; ${batPct}% (${statusText})</option>\n`;
   }
   if (!initialDeviceOptions) {
-    initialDeviceOptions = '<option value="">🔄 Waiting for Tablets to Connect...</option>';
+    initialDeviceOptions = '<option value="">&#128257; Waiting for Tablets to Connect...</option>';
   }
   const logoImgTagAuth = cachedLogoBase64
     ? `<div style="background:#ffffff; padding:15px; border-radius:12px; display:inline-block; margin-bottom:10px;"><img src="data:image/png;base64,${cachedLogoBase64}" alt="Western Logo" style="max-width:140px; height:auto; display:block; margin:0 auto;" /></div>`
@@ -1346,7 +1403,7 @@ function buildDashboardHtml() {
       <div id="authDeviceSelectContainer" style="margin-bottom:12px; text-align:left;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
           <label style="font-size:0.75rem; color:#94a3b8; font-weight:700;">Select Target Branch Tablet:</label>
-          <button type="button" onclick="promptRemoveDeviceFromLogin()" style="background:transparent; border:1px solid #ef4444; color:#ef4444; font-size:0.72rem; font-weight:700; cursor:pointer; padding:2px 8px; border-radius:6px; display:inline-flex; align-items:center; gap:3px;" onmouseover="this.style.background='#ef4444';this.style.color='#fff'" onmouseout="this.style.background='transparent';this.style.color='#ef4444'" title="Delete damaged or offline tablet from fleet">🗑️ Remove Tablet</button>
+          <button type="button" onclick="openFleetManagerModal()" style="background:#1e293b; border:1px solid #ef4444; color:#f87171; font-size:0.75rem; font-weight:700; cursor:pointer; padding:3px 9px; border-radius:6px; display:inline-flex; align-items:center; gap:4px;" title="Manage fleet & remove damaged tablets">&#128465; Manage Fleet / Remove Tablet</button>
         </div>
         <select id="authDeviceSelect" class="input-type" onchange="selectFleetDevice(this.value)" style="width:100%; margin-bottom:0; padding:8px 10px; font-size:0.85rem; font-weight:700; color:#38bdf8; border:1px solid #38bdf8; background:#0f172a; border-radius:8px; outline:none; cursor:pointer;">
           ${initialDeviceOptions}
@@ -1357,6 +1414,49 @@ function buildDashboardHtml() {
       <div id="authError" class="auth-error"></div>
       <div style="margin-top:14px; font-size:0.75rem; color:#64748b; text-align:center;">
         Live Cloud Portal: <a href="https://is.gd/westernintapplock" target="_blank" style="color:#38bdf8; text-decoration:none; font-weight:600;">https://is.gd/westernintapplock</a>
+      </div>
+    </div>
+  </div>
+
+  
+  <!-- Fleet Device Manager Modal -->
+  <div class="app-overlay" id="fleetManagerModal" style="display:none; z-index:100000;">
+    <div class="app-card-modal" style="max-width:540px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; border-bottom:1px solid #334155; padding-bottom:10px;">
+        <h3 style="margin:0; font-size:1.15rem; color:#f8fafc; display:flex; align-items:center; gap:8px;">
+          <span>&#128465;</span> Tablet Fleet Manager
+        </h3>
+        <button class="btn-hdr" onclick="closeFleetManagerModal()" style="font-size:0.85rem; padding:4px 10px;">&#10005; Close</button>
+      </div>
+
+      <div style="font-size:0.82rem; color:#94a3b8; margin-bottom:12px;">
+        Remove damaged, lost, or decommissioned tablets from the fleet list using Admin Code (<b>7866</b> or <b>Wf@3125210946</b>).
+      </div>
+
+      <div style="margin-bottom:16px;">
+        <div style="font-size:0.82rem; font-weight:700; color:#38bdf8; margin-bottom:8px;">Active Tablets in Fleet:</div>
+        <div id="fleetManagerList" style="max-height:220px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding-right:4px;">
+          <!-- Dynamically populated -->
+        </div>
+      </div>
+
+      <!-- Force delete by ID -->
+      <div style="background:#0f172a; border:1px solid #334155; border-radius:10px; padding:12px; margin-bottom:14px;">
+        <div style="font-size:0.8rem; font-weight:700; color:#e2e8f0; margin-bottom:6px;">Force Remove Tablet by ID:</div>
+        <div style="display:flex; gap:8px; margin-bottom:8px;">
+          <input type="text" id="manualDeleteDevId" class="input-type" placeholder="Device ID (e.g. WIG-F746D0)" style="flex:1; margin-bottom:0;" />
+          <input type="password" id="manualDeleteCode" class="input-type" placeholder="Admin Code" style="width:110px; margin-bottom:0;" value="7866" />
+        </div>
+        <button type="button" onclick="executeManualDeviceDelete()" style="width:100%; background:#ef4444; color:#fff; border:none; border-radius:8px; padding:8px; font-weight:700; font-size:0.82rem; cursor:pointer;">
+          &#10006; Permanently Remove Specified Tablet
+        </button>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <button type="button" onclick="removeAllOfflineTablets()" style="background:transparent; border:1px solid #f59e0b; color:#fbbf24; font-size:0.75rem; font-weight:700; cursor:pointer; padding:6px 12px; border-radius:8px;">
+          &#129529; Purge All Offline Tablets
+        </button>
+        <button type="button" onclick="closeFleetManagerModal()" class="btn-hdr">Done</button>
       </div>
     </div>
   </div>
@@ -1533,6 +1633,7 @@ function buildDashboardHtml() {
         <select id="fleetSelect" class="device-info" onchange="selectFleetDevice(this.value)" title="Switch Active Tablet" style="display:inline-flex; cursor:pointer; outline:none; border-color:#38bdf8; color:#38bdf8; font-weight:700;">
           ${initialDeviceOptions}
         </select>
+        <button type="button" onclick="openFleetManagerModal()" class="device-info" style="cursor:pointer; border-color:#ef4444; color:#f87171; font-weight:700; background:transparent;" title="Manage fleet and remove damaged tablets">&#128465; Delete Tablet</button>
         <div class="device-info" id="headerDeviceName">📱 Shola Test Tab</div>
         <div class="device-info" id="headerBattery">🔋 --</div>
         <div class="device-info green" id="statScreen">📱 Screen: ON</div>
@@ -2279,6 +2380,117 @@ function buildDashboardHtml() {
       }
     }
 
+    
+    function openFleetManagerModal() {
+      const modal = document.getElementById('fleetManagerModal');
+      if (!modal) return;
+      modal.style.display = 'flex';
+      renderFleetManagerList();
+    }
+
+    function closeFleetManagerModal() {
+      const modal = document.getElementById('fleetManagerModal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    function promptRemoveDeviceFromLogin() {
+      openFleetManagerModal();
+    }
+
+    async function renderFleetManagerList() {
+      const listContainer = document.getElementById('fleetManagerList');
+      if (!listContainer) return;
+      listContainer.innerHTML = '<div style="color:#94a3b8; font-size:0.8rem; padding:10px;">Loading fleet tablets...</div>';
+
+      try {
+        const resp = await fetch('/api/status', { cache: 'no-store' });
+        const data = await resp.json();
+        if (!data.fleet || data.fleet.length === 0) {
+          listContainer.innerHTML = '<div style="color:#64748b; font-size:0.8rem; padding:10px; text-align:center;">No tablets registered in fleet.</div>';
+          return;
+        }
+        listContainer.innerHTML = '';
+        data.fleet.forEach(t => {
+          const item = document.createElement('div');
+          item.style.cssText = 'background:#1e293b; border:1px solid #334155; border-radius:8px; padding:10px 12px; display:flex; justify-content:space-between; align-items:center;';
+          const isOnline = Boolean(t.online);
+          const statusBadge = isOnline ? '<span style="color:#22c55e; font-weight:700;">🟢 Online</span>' : '<span style="color:#ef4444; font-weight:700;">🔴 Offline</span>';
+          const ipStr = t.localIp ? (' • IP: ' + t.localIp) : '';
+          item.innerHTML = '<div style="text-align:left;">' +
+              '<div style="font-weight:700; color:#f8fafc; font-size:0.88rem;">' + t.deviceName + ' <span style="color:#38bdf8; font-size:0.75rem;">[' + t.deviceId + ']</span></div>' +
+              '<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">' + statusBadge + ipStr + ' &bull; &#128267; ' + t.batteryPct + '%</div>' +
+            '</div>' +
+            '<button type="button" onclick="executeDeviceDelete(\'' + t.deviceId + '\', \'' + (t.deviceName || t.deviceId).replace(/'/g, "") + '\')" style="background:#ef4444; color:#fff; border:none; border-radius:6px; padding:6px 12px; font-size:0.78rem; font-weight:700; cursor:pointer;" title="Delete this tablet from fleet">&#128465; Delete</button>';
+          listContainer.appendChild(item);
+        });
+      } catch (e) {
+        listContainer.innerHTML = '<div style="color:#ef4444; font-size:0.8rem; padding:10px;">Error loading fleet: ' + e.message + '</div>';
+      }
+    }
+
+    async function executeDeviceDelete(devId, devName) {
+      if (!confirm('Are you sure you want to permanently delete this tablet from fleet?\n\n' + (devName || devId) + ' [' + devId + ']')) return;
+      const loginCodeInput = document.getElementById('remoteCodeInput');
+      const adminCode = (loginCodeInput && loginCodeInput.value.trim()) || '7866';
+      try {
+        const resp = await fetch('/api/admin/remove-device?deviceId=' + encodeURIComponent(devId) + '&code=' + encodeURIComponent(adminCode), { cache: 'no-store' });
+        const data = await resp.json();
+        if (data.success) {
+          alert('✅ Successfully deleted tablet: ' + devId);
+          renderFleetManagerList();
+          pollStatus();
+        } else {
+          alert('❌ Failed: ' + (data.error || 'Invalid Admin Code'));
+        }
+      } catch (err) {
+        alert('❌ Error: ' + err.message);
+      }
+    }
+
+    async function executeManualDeviceDelete() {
+      const input = document.getElementById('manualDeleteDevId');
+      const codeInput = document.getElementById('manualDeleteCode');
+      const devId = input ? input.value.trim() : '';
+      const code = (codeInput && codeInput.value.trim()) || '7866';
+      if (!devId) {
+        alert('Please enter a Device ID (e.g. WIG-F746D0)');
+        return;
+      }
+      try {
+        const resp = await fetch('/api/admin/remove-device?deviceId=' + encodeURIComponent(devId) + '&code=' + encodeURIComponent(code), { cache: 'no-store' });
+        const data = await resp.json();
+        if (data.success) {
+          alert('✅ Tablet ' + devId + ' removed successfully!');
+          if (input) input.value = '';
+          renderFleetManagerList();
+          pollStatus();
+        } else {
+          alert('❌ Failed: ' + (data.error || 'Error removing tablet'));
+        }
+      } catch (err) {
+        alert('❌ Error: ' + err.message);
+      }
+    }
+
+    async function removeAllOfflineTablets() {
+      if (!confirm('Are you sure you want to remove ALL offline/damaged tablets from fleet? Active tablets will stay.')) return;
+      const loginCodeInput = document.getElementById('remoteCodeInput');
+      const adminCode = (loginCodeInput && loginCodeInput.value.trim()) || '7866';
+      try {
+        const resp = await fetch('/api/admin/remove-device?action=remove_all_offline&code=' + encodeURIComponent(adminCode), { cache: 'no-store' });
+        const data = await resp.json();
+        if (data.success) {
+          alert('✅ ' + (data.message || 'Offline tablets removed!'));
+          renderFleetManagerList();
+          pollStatus();
+        } else {
+          alert('❌ Failed: ' + (data.error || 'Invalid Admin Code'));
+        }
+      } catch (err) {
+        alert('❌ Error: ' + err.message);
+      }
+    }
+
     function submitAuth() {
       const code = document.getElementById('remoteCodeInput').value.trim();
       const err = document.getElementById('authError');
@@ -2923,7 +3135,13 @@ function broadcastPublicUrlToTablets(publicUrl) {
   // 3. Auto-push to GitHub repository so GitHub Pages & raw URL are always 100% updated
   try {
     const { exec } = require('child_process');
-    exec('git add CURRENT_PUBLIC_HTTPS_LINK.txt && git commit -m "Auto-sync live tunnel [skip ci]" && git pull --rebase origin main && git push origin main', { cwd: __dirname }, () => {});
+    // Also write to Any_Network_Cloud_Server
+    const altLinkPath = path.resolve(__dirname, '..', 'Any_Network_Cloud_Server', 'CURRENT_PUBLIC_HTTPS_LINK.txt');
+    try { fs.writeFileSync(altLinkPath, currentPublicHttpsUrl + '\n', 'utf8'); } catch (_) {}
+    const gitDir = path.resolve(__dirname, '..', 'Any_Network_Cloud_Server');
+    exec('git add CURRENT_PUBLIC_HTTPS_LINK.txt index.html && git commit -m "Auto-sync live tunnel [skip ci]" && git pull --rebase origin main && git push origin main', { cwd: gitDir }, (err) => {
+      if (!err) console.log(' [+] GitHub Pages synced with live Cloudflare tunnel.');
+    });
   } catch (_) {}
 
   // Also broadcast the laptop's local LAN HTTP URL so tablets on the same Wi-Fi connect in 1ms

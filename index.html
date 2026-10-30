@@ -2,21 +2,26 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Western AppLock KSA - Live Cloud Portal</title>
   <style>
     * { box-sizing: border-box; }
-    body {
+    html, body {
       margin: 0;
       padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
       background: #0b1120;
       color: #f8fafc;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    #loadingContainer {
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      min-height: 100vh;
+      height: 100vh;
       text-align: center;
       padding: 20px;
     }
@@ -84,68 +89,98 @@
       border: none;
     }
     .btn:hover { background: #0369a1; }
+
+    #cloudFrame {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      border: none;
+      z-index: 999999;
+      background: #0b1120;
+    }
+    #topBarPortal {
+      display: none;
+      position: fixed;
+      top: 8px;
+      right: 12px;
+      z-index: 1000000;
+    }
+    .popout-btn {
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid #38bdf8;
+      color: #38bdf8;
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      text-decoration: none;
+      backdrop-filter: blur(4px);
+    }
+    .popout-btn:hover {
+      background: #38bdf8;
+      color: #0f172a;
+    }
   </style>
 </head>
 <body>
-  <div class="card">
-    <img src="logo_western.png" alt="Western AppLock" class="logo" onerror="this.style.display='none'" />
-    <h2>Western AppLock KSA</h2>
-    <div id="loader" class="spinner"></div>
-    <div id="statusBadge" class="status-badge">Searching for Cloud Server...</div>
-    <p id="statusMsg">Locating active tablet monitor...</p>
+  <div id="loadingContainer">
+    <div class="card">
+      <img src="logo_western.png" alt="Western AppLock" class="logo" onerror="this.style.display='none'" />
+      <h2>Western AppLock KSA</h2>
+      <div id="loader" class="spinner"></div>
+      <div id="statusBadge" class="status-badge">Connecting to Live Cloud Portal...</div>
+      <p id="statusMsg">Locating active tablet monitor...</p>
 
-    <div id="instructionsBox" class="instructions">
-      <div style="font-weight:bold; margin-bottom:6px; color:#f87171;">⚠️ Server is not running on your laptop</div>
-      <div>To start the server without Antigravity:</div>
-      <ol style="margin: 8px 0; padding-left: 20px;">
-        <li>Open: <b>D:\Last\30-12pm\2 Web Host\</b></li>
-        <li>Double-click: <b>START_CLOUD_RELAY_SERVER.bat</b></li>
-      </ol>
-      <div style="font-size:0.75rem; color:#94a3b8;">This page will auto-connect as soon as the server opens!</div>
+      <div id="instructionsBox" class="instructions">
+        <div style="font-weight:bold; margin-bottom:6px; color:#f87171;">⚠️ Server is not running on your laptop</div>
+        <div>To start the server without Antigravity:</div>
+        <ol style="margin: 8px 0; padding-left: 20px;">
+          <li>Open: <b>D:\Last\30-12pm\2 Web Host\</b></li>
+          <li>Double-click: <b>START_SERVER.bat</b></li>
+        </ol>
+        <div style="font-size:0.75rem; color:#94a3b8;">This page will auto-connect as soon as the server opens!</div>
+      </div>
+
+      <button id="retryBtn" class="btn" style="display:none;" onclick="discoverAndConnect()">Retry Now</button>
     </div>
+  </div>
 
-    <button id="retryBtn" class="btn" style="display:none;" onclick="discoverAndConnect()">Retry Now</button>
+  <iframe id="cloudFrame" src="about:blank" allow="fullscreen; clipboard-read; clipboard-write; camera; microphone"></iframe>
+  <div id="topBarPortal">
+    <a id="directLinkA" href="#" target="_blank" class="popout-btn" title="Open in separate tab">⚡ Direct Tab</a>
   </div>
 
   <script>
-    let isRedirecting = false;
+    let isConnected = false;
 
     async function discoverAndConnect() {
-      if (isRedirecting) return;
+      if (isConnected) return;
 
       const loader = document.getElementById('loader');
       const badge = document.getElementById('statusBadge');
       const msg = document.getElementById('statusMsg');
       const instr = document.getElementById('instructionsBox');
       const retryBtn = document.getElementById('retryBtn');
+      const iframe = document.getElementById('cloudFrame');
+      const loadingContainer = document.getElementById('loadingContainer');
+      const topBar = document.getElementById('topBarPortal');
+      const directLinkA = document.getElementById('directLinkA');
 
-      badge.textContent = 'Searching for Live Cloud Server...';
+      badge.textContent = 'Connecting to Live Cloud Portal...';
       badge.style.background = '#0369a1';
-      msg.textContent = 'Checking Cloudflare tunnel and local network...';
+      msg.textContent = 'Checking Cloudflare tunnel...';
       loader.style.display = 'block';
       instr.style.display = 'none';
       retryBtn.style.display = 'none';
 
-      // 1. If running locally on laptop, test localhost:8080 first
-      try {
-        const ctrlLocal = new AbortController();
-        const tLocal = setTimeout(() => ctrlLocal.abort(), 800);
-        const localCheck = await fetch('http://localhost:8080/api/status', { signal: ctrlLocal.signal, mode: 'cors', cache: 'no-store' });
-        clearTimeout(tLocal);
-        if (localCheck && localCheck.ok) {
-          isRedirecting = true;
-          badge.textContent = 'Connected Locally (Laptop)';
-          badge.style.background = '#15803d';
-          msg.textContent = 'Redirecting to localhost:8080...';
-          window.location.replace('http://localhost:8080');
-          return;
-        }
-      } catch (_) {}
-
-      // 2. Fetch candidates from ntfy & GitHub Raw
+      // 1. Fetch fresh link candidates from GitHub Raw & ntfy
       const sources = [
-        'https://ntfy.sh/western_ksa_3125210946/raw?poll=1&since=all&_t=' + Date.now(),
         'https://raw.githubusercontent.com/hashikbinazeez-code/westernapplock-cloud-server/main/CURRENT_PUBLIC_HTTPS_LINK.txt?_t=' + Date.now(),
+        'https://ntfy.sh/western_ksa_3125210946/raw?poll=1&since=all&_t=' + Date.now(),
         'https://ntfy.sh/western_applock_sync_3125210946/raw?poll=1&since=all&_t=' + Date.now()
       ];
 
@@ -161,7 +196,7 @@
             const text = await res.text();
             const urls = text.trim().split('\n')
               .map(s => s.trim())
-              .filter(s => s.startsWith('https://') && !s.includes('error') && !s.includes('code'));
+              .filter(s => s.startsWith('https://') && s.includes('trycloudflare.com') && !s.includes('api.trycloudflare.com'));
             for (const u of urls.reverse()) {
               if (!candidates.includes(u)) candidates.push(u);
             }
@@ -169,7 +204,7 @@
         } catch (_) {}
       }
 
-      // 3. Test each candidate for live HTTP status
+      // 2. Test candidates for live /api/status response
       for (const candidate of candidates) {
         try {
           const ctrl = new AbortController();
@@ -177,25 +212,33 @@
           const check = await fetch(candidate + '/api/status', { signal: ctrl.signal, cache: 'no-store' });
           clearTimeout(t);
           if (check && check.ok) {
-            isRedirecting = true;
-            badge.textContent = 'Cloud Tunnel Active 🟢';
-            badge.style.background = '#15803d';
-            msg.textContent = 'Redirecting to live tablet monitor...';
-            window.location.replace(candidate);
-            return;
+            const data = await check.json();
+            if (data && (data.status || data.fleet)) {
+              isConnected = true;
+              badge.textContent = 'Connected 🟢';
+              badge.style.background = '#15803d';
+              msg.textContent = 'Loading live portal...';
+
+              // Seamless full-screen iframe - KEEP URL BAR ON https://is.gd/westernintapplock!
+              iframe.src = candidate;
+              directLinkA.href = candidate;
+              loadingContainer.style.display = 'none';
+              iframe.style.display = 'block';
+              topBar.style.display = 'block';
+              return;
+            }
           }
         } catch (_) {}
       }
 
-      // 4. If no candidate responded, show offline instructions and auto-retry
+      // 3. If no candidate responded yet, show instructions and auto-retry
       loader.style.display = 'none';
-      badge.textContent = 'Server Offline 🔴';
+      badge.textContent = 'Server Starting / Offline 🔴';
       badge.style.background = '#b91c1c';
-      msg.textContent = 'Could not establish connection to Western Cloud Relay.';
+      msg.textContent = 'Waiting for Cloud Relay Server... (Keep START_SERVER.bat open)';
       instr.style.display = 'block';
       retryBtn.style.display = 'inline-block';
 
-      // Auto-retry in 3 seconds
       setTimeout(discoverAndConnect, 3000);
     }
 
