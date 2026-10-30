@@ -192,7 +192,6 @@ function sendJson(res, statusCode, obj) {
   res.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
-    'X-Frame-Options': 'DENY',
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
     'Cache-Control': 'no-store, no-cache, must-revalidate',
@@ -234,15 +233,24 @@ function sendWsText(socket, text) {
 
 function queueCommand(dev, cmdObj) {
   if (!dev) return false;
+  if (!cmdObj.cmdId) {
+    cmdObj.cmdId = Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+  }
   const sockets = wsClients.get(dev.deviceId);
+  let deliveredOverWs = false;
   if (sockets && sockets.size > 0) {
     const text = JSON.stringify(cmdObj);
     for (const s of sockets) {
-      sendWsText(s, text);
+      if (s && !s.destroyed && !s.writableEnded) {
+        sendWsText(s, text);
+        deliveredOverWs = true;
+      }
     }
   }
-  dev.commandQueue.push(cmdObj);
-  if (dev.commandQueue.length > 60) dev.commandQueue.shift();
+  if (!deliveredOverWs) {
+    dev.commandQueue.push(cmdObj);
+    if (dev.commandQueue.length > 60) dev.commandQueue.shift();
+  }
   return true;
 }
 
@@ -698,9 +706,9 @@ const server = http.createServer((req, res) => {
       deviceName: dev ? dev.deviceName : 'Western Tablet',
       localIp: dev ? dev.localIp : '--',
       meshIp: dev ? dev.meshIp : '',
-      cloudUrl: 'https://is.gd/western_applock_live',
+      cloudUrl: '',
       cloudConnected: onlineNow,
-      cloudStatus: 'Connected 🟢 (https://is.gd/western_applock_live)'
+      cloudStatus: onlineNow ? 'Connected 🟢 (Western Cloud Active)' : 'Waiting for Tablet...'
     });
   }
 
@@ -878,7 +886,7 @@ const server = http.createServer((req, res) => {
     const html = buildDashboardHtml();
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
-      'X-Frame-Options': 'DENY',
+      'Access-Control-Allow-Origin': '*',
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer',
       'Cache-Control': 'no-store, no-cache, must-revalidate',
@@ -1477,14 +1485,9 @@ function buildDashboardHtml() {
 
       <label style="font-size:0.8rem; color:#cbd5e1; display:block; margin-top:8px; font-weight:700;">🏢 Tablet Branch / Device Name:</label>
       <input type="text" id="cloudDeviceNameInput" class="input-type" placeholder="e.g. KSA-RIYADH-TAB01" style="width:100%; margin-top:4px;" />
+      <input type="hidden" id="cloudRelayUrlInput" value="" />
 
-      <label style="font-size:0.8rem; color:#cbd5e1; display:block; margin-top:10px; font-weight:700;">☁️ Cloud Relay Server URL (HTTPS / HTTP):</label>
-      <input type="text" id="cloudRelayUrlInput" class="input-type" placeholder="e.g. https://western-relay.onrender.com or https://xxxx.trycloudflare.com" style="width:100%; margin-top:4px;" />
-      <div style="font-size:0.73rem; color:#64748b; margin-top:4px;">
-        Leave blank for Auto-Sync mode, or paste your free HTTPS Cloud Relay Server URL so this tablet connects outward automatically from any network.
-      </div>
-
-      <button class="btn-auth" style="margin-top:14px; background:#0284c7;" onclick="submitCloudConfig()">💾 Save Any-Network Cloud Settings</button>
+      <button class="btn-auth" style="margin-top:14px; background:#0284c7;" onclick="submitCloudConfig()">💾 Save Branch Name</button>
       <button class="btn-auth" style="margin-top:8px; background:#dc2626;" onclick="deleteCurrentDevice()">🗑️ Remove Tablet from Fleet</button>
     </div>
   </div>
@@ -1703,10 +1706,11 @@ function buildDashboardHtml() {
     }
 
     if (streamImg) {
+      let lastTouchEventMs = 0;
       streamImg.addEventListener('dragstart', (e) => e.preventDefault());
 
       streamImg.addEventListener('mousedown', (e) => {
-        if (e.button !== 0) return;
+        if (e.button !== 0 || (Date.now() - lastTouchEventMs < 650)) return;
         e.preventDefault();
         isDragging = true;
         const pt = mapStreamCoords(e.clientX, e.clientY);
@@ -1715,7 +1719,7 @@ function buildDashboardHtml() {
       });
 
       window.addEventListener('mouseup', (e) => {
-        if (!isDragging || e.button !== 0) return;
+        if (!isDragging || e.button !== 0 || (Date.now() - lastTouchEventMs < 650)) return;
         isDragging = false;
         const pt = mapStreamCoords(e.clientX, e.clientY);
         const endX = pt.x;
@@ -1736,6 +1740,7 @@ function buildDashboardHtml() {
 
       streamImg.addEventListener('touchstart', (e) => {
         if (!e.touches || e.touches.length === 0) return;
+        lastTouchEventMs = Date.now();
         const t = e.touches[0];
         isDragging = true;
         const pt = mapStreamCoords(t.clientX, t.clientY);
@@ -1745,6 +1750,7 @@ function buildDashboardHtml() {
 
       streamImg.addEventListener('touchend', (e) => {
         if (!isDragging || !e.changedTouches || e.changedTouches.length === 0) return;
+        lastTouchEventMs = Date.now();
         isDragging = false;
         const t = e.changedTouches[0];
         const pt = mapStreamCoords(t.clientX, t.clientY);
@@ -2628,25 +2634,22 @@ function buildDashboardHtml() {
             if (!selectedDeviceId) {
               selectedDeviceId = data.fleet[0].deviceId;
             }
-            const updateSelectDropdown = (el, alwaysShow) => {
+            const updateSelectDropdown = (el, isHeader) => {
               if (!el) return;
-              if (alwaysShow || data.fleet.length > 1) {
-                el.style.display = alwaysShow ? 'inline-flex' : 'block';
-                if (document.activeElement !== el) {
-                  el.innerHTML = '';
-                  data.fleet.forEach(t => {
-                    const opt = document.createElement('option');
-                    opt.value = t.deviceId;
-                    opt.selected = (t.deviceId === selectedDeviceId);
-                    opt.textContent = '🔄 ' + (t.online ? '🟢 ' : '🔴 ') + t.deviceName + ' (' + t.deviceId + ') • ' + t.batteryPct + '%';
-                    el.appendChild(opt);
-                  });
-                }
-              } else {
-                el.style.display = 'none';
+              el.style.display = isHeader ? 'inline-flex' : 'block';
+              if (document.activeElement !== el) {
+                el.innerHTML = '';
+                data.fleet.forEach(t => {
+                  const opt = document.createElement('option');
+                  opt.value = t.deviceId;
+                  opt.selected = (t.deviceId === selectedDeviceId);
+                  const ipStr = t.localIp ? (' • IP: ' + t.localIp) : '';
+                  opt.textContent = '🔄 ' + (t.online ? '🟢 ' : '🔴 ') + t.deviceName + ' [' + t.deviceId + ']' + ipStr + ' • 🔋' + t.batteryPct + '%';
+                  el.appendChild(opt);
+                });
               }
             };
-            updateSelectDropdown(sel, false);
+            updateSelectDropdown(sel, true);
             updateSelectDropdown(authSel, false);
           }
 
@@ -2789,7 +2792,7 @@ function broadcastPublicUrlToTablets(publicUrl) {
   req.write(currentPublicHttpsUrl);
   req.end();
 
-  const htmlRedirect = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${currentPublicHttpsUrl}"><title>Western AppLock KSA</title></head><body style="background:#0f172a;color:#38bdf8;font-family:sans-serif;text-align:center;padding-top:25vh"><h2>Western AppLock KSA</h2><p>Connecting to live tablet portal...</p><img src="https://ntfy.sh/invalid.jpg" style="display:none" onerror="window.top.location.replace('${currentPublicHttpsUrl}')"></body></html>`;
+  const htmlRedirect = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>westernintapplock.cloudflare • Western AppLock KSA</title><style>html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#0b1120;}iframe{position:fixed;inset:0;width:100vw;height:100vh;border:none;margin:0;padding:0;}</style></head><body><iframe src="${currentPublicHttpsUrl}" allow="fullscreen; clipboard-read; clipboard-write"></iframe></body></html>`;
   const req2 = https.request({
     hostname: 'ntfy.sh',
     port: 443,
@@ -2860,16 +2863,17 @@ function startLocalCustomDomainResponder() {
       return '127.0.0.1';
     };
 
-    // 1. mDNS responder (UDP 5353, 224.0.0.251) for westernapplockksa.local
+    // 1. mDNS responder (UDP 5353, 224.0.0.251) for westernintapplock.local & westernapplockksa.local
     const mdns = dgram.createSocket({ type: 'udp4', reuseAddr: true });
     mdns.on('error', () => {});
     mdns.on('message', (msg, rinfo) => {
       if (!msg || msg.length < 12) return;
       const lower = msg.toString('ascii').toLowerCase();
-      if (lower.includes('westernapplockksa')) {
+      if (lower.includes('westernapplockksa') || lower.includes('westernintapplock')) {
+        const hostLabel = lower.includes('westernintapplock') ? 'westernintapplock' : 'westernapplockksa';
         const ipParts = getLanIp().split('.').map(Number);
         const txId = msg.readUInt16BE(0);
-        const nameBuf = Buffer.from([17, ...Buffer.from('westernapplockksa'), 5, ...Buffer.from('local'), 0]);
+        const nameBuf = Buffer.from([hostLabel.length, ...Buffer.from(hostLabel), 5, ...Buffer.from('local'), 0]);
         const resp = Buffer.alloc(12 + nameBuf.length + 10 + 4);
         resp.writeUInt16BE(txId, 0);
         resp.writeUInt16BE(0x8400, 2);
@@ -2890,13 +2894,13 @@ function startLocalCustomDomainResponder() {
       try { mdns.addMembership('224.0.0.251'); } catch (_) {}
     });
 
-    // 2. LLMNR responder (UDP 5355, 224.0.0.252) for http://westernapplockksa
+    // 2. LLMNR responder (UDP 5355, 224.0.0.252) for http://westernintapplock & http://westernapplockksa
     const llmnr = dgram.createSocket({ type: 'udp4', reuseAddr: true });
     llmnr.on('error', () => {});
     llmnr.on('message', (msg, rinfo) => {
       if (!msg || msg.length < 12) return;
       const lower = msg.toString('ascii').toLowerCase();
-      if (lower.includes('westernapplockksa')) {
+      if (lower.includes('westernapplockksa') || lower.includes('westernintapplock')) {
         const ipParts = getLanIp().split('.').map(Number);
         const txId = msg.readUInt16BE(0);
         let qEnd = 12;
