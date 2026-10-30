@@ -4,34 +4,41 @@
 
 1. HOW TO START THE SERVER:
    Double-click:  START_SERVER.bat
-   - Starts the server and Cloudflare tunnel.
-   - Automatically syncs to all tablets worldwide!
-   - Automatically opens: https://is.gd/westernintapplock
+   - Starts the server and Cloudflare tunnel engine.
+   - Automatically syncs the secure link to all tablets worldwide!
+   - Opens the official Live Cloud Portal: https://is.gd/westernintapplock
    - Leave the black window open or minimized.
 
-2. HOW TO REMOVE A DAMAGED OR INACTIVE TABLET:
-   - On the login screen, select the tablet in the dropdown.
-   - Click "🗑️ Remove Tablet" right above the dropdown.
-   - Enter Admin Code: 7866 (or Master Code: Wf@3125210946).
-   - The tablet is permanently deleted from the fleet!
+2. HOW TO REMOVE A DAMAGED OR UNWANTED TABLET:
+   METHOD A (From Browser Portal):
+   - On the login screen or in the top header, click:
+     "[🗑️ Manage Fleet / Remove Tablet]"
+   - In the Fleet Manager popup, click "Delete" next to any tablet
+     (e.g., SHOLA TEST TAB [WIG-F746D0]).
+   - Or type the Device ID in "Force Remove Tablet by ID" and click Delete.
+   - Or click "[Purge All Offline Tablets]" to remove all offline devices at once.
+   - Admin Code: 7866 (or Wf@3125210946).
+
+   METHOD B (From Windows 1-Click Script):
+   - Double-click:  RESET_DEVICES_LIST.bat
+   - This immediately clears all offline and damaged tablets from Windows!
 
 3. HOW TO CHECK STATUS:
    Double-click:  CHECK_STATUS.bat
-   - Shows if server is running and displays the live public URL.
+   - Displays server status and the active Cloudflare HTTPS link.
 
 4. HOW TO STOP THE SERVER:
    Double-click:  STOP_SERVER.bat
 
 5. AUTO-START ON LAPTOP BOOT:
    Double-click:  ENABLE_AUTO_START.bat
-   - Configures Windows to start the server automatically on boot.
+   - Runs server silently in background whenever the laptop restarts.
 
 --------------------------------------------------------------------------------
-ACCESS CODES & PASSWORDS:
+ACCESS CODES & PORTAL LINKS:
 --------------------------------------------------------------------------------
-- Live Worldwide Link:    https://is.gd/westernintapplock
-- Local Laptop Link:       http://localhost:8080
-- Web Dashboard Code:      7866 (or 8080)
-- Tablet Master Super PIN: Wf@3125210946
-- Tablet Quick Unlock PIN: 78663786
+- Official Live Cloud Portal:  https://is.gd/westernintapplock
+- Web Dashboard Admin Code:    7866  (or 8080)
+- Master Super Admin Code:     Wf@3125210946
+- Tablet Quick Unlock PIN:     78663786
 ================================================================================
