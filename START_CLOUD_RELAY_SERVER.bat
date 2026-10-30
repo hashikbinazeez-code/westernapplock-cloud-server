@@ -17,15 +17,19 @@ echo.
 
 where node >nul 2>nul
 if %errorlevel% neq 0 (
-    color 0C
-    echo [ERROR] Node.js is not installed on this PC.
-    echo Please install Node.js from https://nodejs.org/ and run this script again.
-    pause
-    exit /b 1
+    if exist "C:\Program Files\nodejs\node.exe" (
+        set "PATH=C:\Program Files\nodejs;%PATH%"
+    ) else (
+        color 0C
+        echo [ERROR] Node.js is not installed on this PC.
+        echo Please install Node.js from https://nodejs.org/ and run this script again.
+        pause
+        exit /b 1
+    )
 )
 
 if not exist "cloudflared.exe" (
-    echo [*] Downloading Cloudflare Free HTTPS Tunnel Engine (One-Time Setup)...
+    echo [*] Downloading Cloudflare Free HTTPS Tunnel Engine - One-Time Setup...
     powershell -Command "Invoke-WebRequest -Uri 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile 'cloudflared.exe'"
 )
 

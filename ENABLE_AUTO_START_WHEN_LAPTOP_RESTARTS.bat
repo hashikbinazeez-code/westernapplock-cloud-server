@@ -20,6 +20,7 @@ echo  Whenever your laptop restarts and logs into Windows:
 echo  1. The Western Cloud Relay Server will start automatically in the background.
 echo  2. It will generate a fresh HTTPS tunnel link and automatically send it to
 echo     all your tablets over the internet within 5 seconds!
-echo  3. Simply open http://localhost:3000 in your browser (PIN: 2580) anytime!
+echo  3. Simply open http://localhost:8080 in your browser (PIN: 7866) anytime!
+echo  4. Or open: https://is.gd/westernintapplock
 echo.
 pause
