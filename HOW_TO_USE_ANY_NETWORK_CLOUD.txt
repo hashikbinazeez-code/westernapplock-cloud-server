@@ -25,7 +25,7 @@ Step 1 (On Your Laptop):
      - Creates an encrypted https://xxxx.trycloudflare.com public link
      - Sends that new link to all your tablets over the internet automatically
      - Saves the public link in CURRENT_PUBLIC_HTTPS_LINK.txt (for mobile access)
-     - Opens your browser to http://localhost:3000
+     - Opens your browser to http://localhost:8080
 
 Step 2 (Optional — Auto-Start When Laptop Restarts):
   - Double-click: ENABLE_AUTO_START_WHEN_LAPTOP_RESTARTS.bat (once).
@@ -33,7 +33,7 @@ Step 2 (Optional — Auto-Start When Laptop Restarts):
     reconnects all tablets automatically within 5–12 seconds!
 
 Step 3 (Control Your Tablets):
-  - On your laptop browser (http://localhost:3000) or from any phone/PC using the
+  - On your laptop browser (http://localhost:8080) or from any phone/PC using the
     link inside CURRENT_PUBLIC_HTTPS_LINK.txt:
   - Enter PIN: 2580 (or Master Code: Wf@3125210946).
   - Select your tablet from the dropdown at the top to view Live Screen +
@@ -47,7 +47,7 @@ On the Tablet:
   2. Tap the 3-dot Menu icon (top-right corner).
   3. Tap "Remote Screen Mirroring" and enter PIN: 2580.
   4. You will see:
-     - Local Wi-Fi URL:  http://192.168.x.x:8254   (Same Wi-Fi direct access)
+     - Local Wi-Fi URL:  https://192.168.x.x:8254   (Same Wi-Fi direct access)
      - Any-Net Mesh IP:  http://100.x.x.x:8254     (Tailscale/ZeroTier static IP)
      - Cloud Device ID:  WIG-XXXXXX                (Permanent Tablet ID - never changes)
 

@@ -1330,7 +1330,12 @@ function buildDashboardHtml() {
       <div class="auth-icon" style="margin-bottom:8px;">
         ${logoImgTagAuth}
       </div>
-      <select id="authDeviceSelect" class="input-type" onchange="selectFleetDevice(this.value)" style="display:none; width:100%; margin-bottom:10px; padding:8px 10px; font-size:0.82rem; font-weight:700; color:#38bdf8; border-color:#38bdf8; cursor:pointer;"></select>
+      <div id="authDeviceSelectContainer" style="margin-bottom:12px; text-align:left;">
+        <label style="font-size:0.75rem; color:#94a3b8; font-weight:700; display:block; margin-bottom:4px;">📱 Select Target Branch Tablet:</label>
+        <select id="authDeviceSelect" class="input-type" onchange="selectFleetDevice(this.value)" style="width:100%; margin-bottom:0; padding:8px 10px; font-size:0.85rem; font-weight:700; color:#38bdf8; border:1px solid #38bdf8; background:#0f172a; border-radius:8px; outline:none; cursor:pointer;">
+          <option value="">🔄 Auto-Detecting Connected Tablets...</option>
+        </select>
+      </div>
       <input type="password" id="remoteCodeInput" class="auth-input" placeholder="••••" onkeydown="if(event.key==='Enter') submitAuth()" />
       <button class="btn-auth" onclick="submitAuth()">Verify &amp; Connect 🔑</button>
       <div id="authError" class="auth-error"></div>
