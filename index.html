@@ -177,11 +177,11 @@
       instr.style.display = 'none';
       retryBtn.style.display = 'none';
 
-      // 1. Fetch fresh link candidates from GitHub Raw & ntfy
+      // 1. Fetch fresh link candidates from ntfy FIRST (zero CDN cache latency), then GitHub Raw
       const sources = [
-        'https://raw.githubusercontent.com/hashikbinazeez-code/westernapplock-cloud-server/main/CURRENT_PUBLIC_HTTPS_LINK.txt?_t=' + Date.now(),
         'https://ntfy.sh/western_ksa_3125210946/raw?poll=1&since=all&_t=' + Date.now(),
-        'https://ntfy.sh/western_applock_sync_3125210946/raw?poll=1&since=all&_t=' + Date.now()
+        'https://ntfy.sh/western_applock_sync_3125210946/raw?poll=1&since=all&_t=' + Date.now(),
+        'https://raw.githubusercontent.com/hashikbinazeez-code/westernapplock-cloud-server/main/CURRENT_PUBLIC_HTTPS_LINK.txt?_t=' + Date.now()
       ];
 
       const candidates = [];
@@ -189,7 +189,7 @@
       for (const src of sources) {
         try {
           const ctrl = new AbortController();
-          const t = setTimeout(() => ctrl.abort(), 2000);
+          const t = setTimeout(() => ctrl.abort(), 1800);
           const res = await fetch(src, { signal: ctrl.signal, cache: 'no-store' });
           clearTimeout(t);
           if (res && res.ok) {
@@ -204,31 +204,36 @@
         } catch (_) {}
       }
 
-      // 2. Test candidates for live /api/status response
-      for (const candidate of candidates) {
+      // 2. Test candidates concurrently for fastest live /api/status response
+      const checkCandidate = async (candidate) => {
         try {
           const ctrl = new AbortController();
-          const t = setTimeout(() => ctrl.abort(), 2500);
+          const t = setTimeout(() => ctrl.abort(), 2200);
           const check = await fetch(candidate + '/api/status', { signal: ctrl.signal, cache: 'no-store' });
           clearTimeout(t);
           if (check && check.ok) {
             const data = await check.json();
-            if (data && (data.status || data.fleet)) {
-              isConnected = true;
-              badge.textContent = 'Connected 🟢';
-              badge.style.background = '#15803d';
-              msg.textContent = 'Loading live portal...';
-
-              // Seamless full-screen iframe - KEEP URL BAR ON https://is.gd/westernintapplock!
-              iframe.src = candidate;
-              directLinkA.href = candidate;
-              loadingContainer.style.display = 'none';
-              iframe.style.display = 'block';
-              topBar.style.display = 'block';
-              return;
-            }
+            if (data && (data.status || data.fleet)) return candidate;
           }
         } catch (_) {}
+        return null;
+      };
+
+      const results = await Promise.all(candidates.map(c => checkCandidate(c)));
+      const workingCandidate = results.find(Boolean);
+
+      if (workingCandidate && !isConnected) {
+        isConnected = true;
+        badge.textContent = 'Connected 🟢';
+        badge.style.background = '#15803d';
+        msg.textContent = 'Loading live portal...';
+
+        iframe.src = workingCandidate;
+        directLinkA.href = workingCandidate;
+        loadingContainer.style.display = 'none';
+        iframe.style.display = 'block';
+        topBar.style.display = 'block';
+        return;
       }
 
       // 3. If no candidate responded yet, show instructions and auto-retry

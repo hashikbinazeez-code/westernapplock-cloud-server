@@ -1056,14 +1056,7 @@ const server = http.createServer((req, res) => {
 
   // 8. MAIN WEB PORTAL UI (100% Identical to Tablet Local Host Web Portal!)
   if (pathname === '/' || pathname.startsWith('/index')) {
-    const hostHeader = String(req.headers.host || '');
-    if ((hostHeader.includes('localhost') || hostHeader.includes('127.0.0.1')) && !query.local) {
-      res.writeHead(302, {
-        'Location': 'https://is.gd/westernintapplock',
-        'Cache-Control': 'no-cache, no-store, must-revalidate'
-      });
-      return res.end();
-    }
+    // Localhost serves portal directly with zero delay
     const html = buildDashboardHtml();
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
@@ -1481,6 +1474,14 @@ function buildDashboardHtml() {
       margin-bottom: 12px;
     }
     .auth-input:focus { border-color: #e11d48; box-shadow: 0 0 0 3px rgba(225, 29, 72, 0.35); }
+    @keyframes shakeAnim {
+      0%, 100% { transform: translateX(0); }
+      20%, 60% { transform: translateX(-8px); }
+      40%, 80% { transform: translateX(8px); }
+    }
+    .shake {
+      animation: shakeAnim 0.4s ease-in-out;
+    }
     .btn-auth {
       width: 100%;
       background: #e11d48;
@@ -1543,27 +1544,40 @@ function buildDashboardHtml() {
   </div>
 
   <!-- Dedicated In-Page Remove Tablet Modal (100% immune to browser iframe prompt blocks) -->
-  <div class="app-overlay" id="removeDeviceModal" style="display:none; z-index:1000000; background:rgba(11,17,32,0.92); backdrop-filter:blur(8px);">
-    <div class="app-card-modal" style="max-width:440px; text-align:center; border:2px solid #ef4444; box-shadow:0 25px 60px rgba(0,0,0,0.85);">
-      <div style="font-size:2.8rem; margin-bottom:6px;">🗑️</div>
+  <div class="app-overlay" id="removeDeviceModal" style="display:none; z-index:10000000; background:rgba(11,17,32,0.92); backdrop-filter:blur(8px);">
+    <div class="app-card-modal" id="removeDeviceCard" style="max-width:460px; width:92%; text-align:center; border:2px solid #ef4444; box-shadow:0 25px 60px rgba(0,0,0,0.85);">
+      <div style="font-size:2.8rem; margin-bottom:4px;">🗑️</div>
       <h3 style="margin:0 0 6px 0; color:#f8fafc; font-size:1.25rem; font-weight:800;">Remove Tablet from Fleet</h3>
-      <div style="font-size:0.8rem; color:#94a3b8; margin-bottom:12px;">Permanently delete selected tablet from the active fleet.</div>
+      <div style="font-size:0.8rem; color:#94a3b8; margin-bottom:14px;">Permanently delete selected or damaged tablet from the active fleet.</div>
       
-      <div id="removeModalDeviceDetails" style="background:#0f172a; border:1px solid #334155; border-radius:10px; padding:12px; margin-bottom:14px; font-size:0.88rem; color:#38bdf8; font-weight:800; word-break:break-all;">
-        <!-- Filled by JS -->
+      <div style="text-align:left; margin-bottom:12px;">
+        <label style="font-size:0.75rem; color:#cbd5e1; font-weight:700; display:block; margin-bottom:4px;">Select Tablet to Remove:</label>
+        <select id="removeModalDeviceSelect" class="input-type" onchange="handleRemoveModalSelectChange(this.value)" style="width:100%; margin-bottom:0; padding:8px 10px; font-size:0.85rem; font-weight:700; color:#38bdf8; border:1px solid #38bdf8; background:#0f172a; border-radius:8px; outline:none; cursor:pointer;">
+        </select>
+      </div>
+
+      <div id="removeModalCustomIdBox" style="display:none; text-align:left; margin-bottom:12px;">
+        <label style="font-size:0.75rem; color:#cbd5e1; font-weight:700; display:block; margin-bottom:4px;">Enter Tablet Device ID manually:</label>
+        <input type="text" id="removeModalCustomIdInput" class="auth-input" placeholder="e.g. WIG-F746D0" style="width:100%; font-size:0.95rem; padding:8px 10px; margin-bottom:0; text-align:left; letter-spacing:1px;" />
+      </div>
+
+      <div id="removeModalDeviceDetails" style="background:#0f172a; border:1px solid #334155; border-radius:10px; padding:10px; margin-bottom:14px; font-size:0.82rem; color:#94a3b8; text-align:left;">
       </div>
       
       <div style="text-align:left; margin-bottom:12px;">
-        <label style="font-size:0.75rem; color:#cbd5e1; font-weight:700; display:block; margin-bottom:4px;">Master Admin Password:</label>
+        <label style="font-size:0.75rem; color:#cbd5e1; font-weight:700; display:block; margin-bottom:4px;">Master Admin Password Required:</label>
         <input type="password" id="removeModalPasswordInput" class="auth-input" placeholder="Enter Password (Wf@3125210946)" style="width:100%; margin-bottom:0;" onkeydown="if(event.key==='Enter') confirmRemoveDeviceFromModal()" />
       </div>
 
       <div id="removeModalError" style="display:none; background:rgba(239,68,68,0.15); border:1px solid #ef4444; border-radius:8px; padding:8px 12px; color:#f87171; font-size:0.82rem; font-weight:700; margin-bottom:12px;"></div>
       <div id="removeModalSuccess" style="display:none; background:rgba(34,197,94,0.15); border:1px solid #22c55e; border-radius:8px; padding:8px 12px; color:#4ade80; font-size:0.85rem; font-weight:700; margin-bottom:12px;"></div>
 
-      <div style="display:flex; gap:10px; justify-content:center; margin-top:8px;">
-        <button type="button" class="btn-ctrl" onclick="closeRemoveDeviceModal()" style="padding:10px 20px; font-size:0.85rem; background:#334155; border:none; color:#fff; border-radius:8px; font-weight:700; cursor:pointer;">Cancel</button>
-        <button type="button" id="btnConfirmDelete" onclick="confirmRemoveDeviceFromModal()" style="padding:10px 22px; font-size:0.85rem; background:#dc2626; border:none; color:#fff; border-radius:8px; font-weight:800; cursor:pointer; box-shadow:0 3px 8px rgba(220,38,38,0.5);">🗑️ Confirm Remove</button>
+      <div style="display:flex; flex-direction:column; gap:8px; margin-top:8px;">
+        <div style="display:flex; gap:10px; justify-content:center;">
+          <button type="button" class="btn-ctrl" onclick="closeRemoveDeviceModal()" style="padding:10px 20px; font-size:0.85rem; background:#334155; border:none; color:#fff; border-radius:8px; font-weight:700; cursor:pointer;">Cancel</button>
+          <button type="button" id="btnConfirmDelete" onclick="confirmRemoveDeviceFromModal()" style="padding:10px 22px; font-size:0.85rem; background:#dc2626; border:none; color:#fff; border-radius:8px; font-weight:800; cursor:pointer; box-shadow:0 3px 8px rgba(220,38,38,0.5);">🗑️ Confirm Remove</button>
+        </div>
+        <button type="button" onclick="confirmRemoveAllOfflineTablets()" style="background:transparent; border:1px dashed #ef4444; color:#f87171; font-size:0.75rem; font-weight:700; padding:6px 12px; border-radius:6px; cursor:pointer; margin-top:4px;" title="Removes all offline / disconnected tablets with Master Password">🗑️ Remove All Offline Tablets</button>
       </div>
     </div>
   </div>
@@ -1571,7 +1585,7 @@ function buildDashboardHtml() {
   
   
   <!-- Floating Live Security Alert Banner -->
-  <div id="securityAlertBanner" style="display:none; position:fixed; top:12px; left:50%; transform:translateX(-50%); z-index:9999999; max-width:580px; width:92%; background:#881337; border:2px solid #f43f5e; border-radius:12px; padding:14px 18px; box-shadow:0 15px 40px rgba(0,0,0,0.8); animation:pulse 1s infinite alternate;">
+  <div id="securityAlertBanner" style="display:none; position:fixed; top:12px; left:50%; transform:translateX(-50%); z-index:10000000; max-width:580px; width:92%; background:#881337; border:2px solid #f43f5e; border-radius:12px; padding:14px 18px; box-shadow:0 15px 40px rgba(0,0,0,0.8); animation:pulse 1s infinite alternate;">
     <div style="display:flex; justify-content:space-between; align-items:flex-start;">
       <div style="display:flex; gap:12px; align-items:center;">
         <span style="font-size:1.8rem;">&#128680;</span>
@@ -2518,13 +2532,14 @@ function buildDashboardHtml() {
 
     let pendingRemoveDeviceId = '';
     let pendingRemoveDeviceName = '';
+    let cachedFleet = [];
 
     function showCustomToast(msg, isSuccess = true) {
       let toast = document.getElementById('inPageCustomToast');
       if (!toast) {
         toast = document.createElement('div');
         toast.id = 'inPageCustomToast';
-        toast.style.cssText = 'position:fixed; top:20px; left:50%; transform:translateX(-50%); background:#0f172a; border:2px solid ' + (isSuccess ? '#22c55e' : '#f43f5e') + '; color:#fff; font-size:0.85rem; font-weight:700; padding:12px 24px; border-radius:12px; box-shadow:0 12px 35px rgba(0,0,0,0.85); z-index:9999999; display:flex; align-items:center; gap:8px;';
+        toast.style.cssText = 'position:fixed; top:20px; left:50%; transform:translateX(-50%); background:#0f172a; border:2px solid ' + (isSuccess ? '#22c55e' : '#f43f5e') + '; color:#fff; font-size:0.85rem; font-weight:700; padding:12px 24px; border-radius:12px; box-shadow:0 12px 35px rgba(0,0,0,0.85); z-index:10000000; display:flex; align-items:center; gap:8px;';
         document.body.appendChild(toast);
       }
       toast.style.borderColor = isSuccess ? '#22c55e' : '#f43f5e';
@@ -2534,30 +2549,82 @@ function buildDashboardHtml() {
     }
 
     function openRemoveDeviceModal(selectId) {
-      const select = document.getElementById(selectId || 'authDeviceSelect') || document.getElementById('authDeviceSelect') || document.getElementById('fleetSelect');
-      const devId = (select && select.value) ? select.value.trim() : (selectedDeviceId || '');
-      if (!devId) {
-        showCustomToast('Please select a tablet from the dropdown list first.', false);
-        return;
-      }
-      const selectedOption = (select && select.selectedIndex >= 0) ? select.options[select.selectedIndex] : null;
-      const devText = selectedOption ? selectedOption.textContent.trim() : devId;
-
-      pendingRemoveDeviceId = devId;
-      pendingRemoveDeviceName = devText;
-
-      const detailsEl = document.getElementById('removeModalDeviceDetails');
-      if (detailsEl) detailsEl.innerText = devText;
-      const passInput = document.getElementById('removeModalPasswordInput');
-      if (passInput) passInput.value = '';
-      const errEl = document.getElementById('removeModalError');
-      if (errEl) errEl.style.display = 'none';
-      const succEl = document.getElementById('removeModalSuccess');
-      if (succEl) succEl.style.display = 'none';
-
       const modal = document.getElementById('removeDeviceModal');
+      const modalSelect = document.getElementById('removeModalDeviceSelect');
+      const passInput = document.getElementById('removeModalPasswordInput');
+      const errEl = document.getElementById('removeModalError');
+      const succEl = document.getElementById('removeModalSuccess');
+      if (errEl) errEl.style.display = 'none';
+      if (succEl) succEl.style.display = 'none';
+      if (passInput) passInput.value = '';
+
+      const sourceSelect = document.getElementById(selectId || 'authDeviceSelect') || document.getElementById('fleetSelect');
+      let preselectedId = (sourceSelect && sourceSelect.value) ? sourceSelect.value.trim() : (selectedDeviceId || '');
+
+      if (modalSelect) {
+        modalSelect.innerHTML = '';
+        let added = 0;
+        if (cachedFleet && cachedFleet.length > 0) {
+          cachedFleet.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.deviceId;
+            const ipStr = t.localIp ? (' • IP: ' + t.localIp) : '';
+            opt.textContent = (t.online ? '🟢 ' : '🔴 ') + (t.deviceName || t.deviceId) + ' [' + t.deviceId + ']' + ipStr + ' • 🔋' + t.batteryPct + '%';
+            if (t.deviceId === preselectedId) opt.selected = true;
+            modalSelect.appendChild(opt);
+            added++;
+          });
+        }
+        if (added === 0 && sourceSelect && sourceSelect.options) {
+          for (let i = 0; i < sourceSelect.options.length; i++) {
+            const o = sourceSelect.options[i];
+            if (o.value) {
+              const opt = document.createElement('option');
+              opt.value = o.value;
+              opt.textContent = o.textContent;
+              if (o.value === preselectedId) opt.selected = true;
+              modalSelect.appendChild(opt);
+              added++;
+            }
+          }
+        }
+        const customOpt = document.createElement('option');
+        customOpt.value = '__custom__';
+        customOpt.textContent = '✏️ Enter Device ID Manually (e.g. WIG-F746D0)...';
+        modalSelect.appendChild(customOpt);
+
+        if (!preselectedId && modalSelect.options.length > 0) {
+          preselectedId = modalSelect.options[0].value;
+        }
+      }
+
+      handleRemoveModalSelectChange(modalSelect ? modalSelect.value : preselectedId);
+
       if (modal) modal.style.display = 'flex';
       setTimeout(() => { if (passInput) passInput.focus(); }, 120);
+    }
+
+    function handleRemoveModalSelectChange(val) {
+      const customBox = document.getElementById('removeModalCustomIdBox');
+      const detailsEl = document.getElementById('removeModalDeviceDetails');
+      if (val === '__custom__') {
+        if (customBox) customBox.style.display = 'block';
+        if (detailsEl) detailsEl.innerHTML = '⚠️ Enter the exact Device ID you want to permanently delete from the fleet.';
+        const customInput = document.getElementById('removeModalCustomIdInput');
+        if (customInput) customInput.focus();
+      } else {
+        if (customBox) customBox.style.display = 'none';
+        let found = cachedFleet ? cachedFleet.find(t => t.deviceId === val) : null;
+        if (detailsEl) {
+          if (found) {
+            detailsEl.innerHTML = '<b>' + (found.deviceName || found.deviceId) + '</b> [' + found.deviceId + ']<br/>' +
+              'Status: ' + (found.online ? '<span style="color:#4ade80;">Online 🟢</span>' : '<span style="color:#f87171;">Offline 🔴</span>') +
+              ' &bull; Local IP: ' + (found.localIp || 'None') + ' &bull; Battery: ' + found.batteryPct + '%';
+          } else {
+            detailsEl.innerHTML = 'Selected Device ID: <b>' + (val || 'None') + '</b>';
+          }
+        }
+      }
     }
 
     function closeRemoveDeviceModal() {
@@ -2567,14 +2634,26 @@ function buildDashboardHtml() {
     }
 
     async function confirmRemoveDeviceFromModal() {
+      const modalSelect = document.getElementById('removeModalDeviceSelect');
+      let targetId = modalSelect ? modalSelect.value.trim() : '';
+      if (targetId === '__custom__') {
+        const customInput = document.getElementById('removeModalCustomIdInput');
+        targetId = customInput ? customInput.value.trim() : '';
+      }
       const passInput = document.getElementById('removeModalPasswordInput');
       const errEl = document.getElementById('removeModalError');
       const succEl = document.getElementById('removeModalSuccess');
       const btn = document.getElementById('btnConfirmDelete');
+      const card = document.getElementById('removeDeviceCard');
 
+      if (!targetId) {
+        if (errEl) { errEl.innerText = '⚠️ Please select or type a Device ID to remove.'; errEl.style.display = 'block'; }
+        return;
+      }
       const pass = (passInput ? passInput.value : '').trim();
       if (!pass) {
-        if (errEl) { errEl.innerText = 'Please enter the Master Password (Wf@3125210946)'; errEl.style.display = 'block'; }
+        if (errEl) { errEl.innerText = '⚠️ Master Admin Password Required (Wf@3125210946)'; errEl.style.display = 'block'; }
+        if (passInput) passInput.focus();
         return;
       }
 
@@ -2582,39 +2661,44 @@ function buildDashboardHtml() {
       if (errEl) errEl.style.display = 'none';
 
       try {
-        const resp = await fetch('/api/admin/remove-device?deviceId=' + encodeURIComponent(pendingRemoveDeviceId) + '&code=' + encodeURIComponent(pass), { cache: 'no-store' });
+        const resp = await fetch('/api/admin/remove-device?deviceId=' + encodeURIComponent(targetId) + '&code=' + encodeURIComponent(pass), { cache: 'no-store' });
         const data = await resp.json();
         if (data.success) {
           if (succEl) {
-            succEl.innerText = '✅ Tablet removed successfully!';
+            succEl.innerText = '✅ Tablet [' + targetId + '] removed successfully!';
             succEl.style.display = 'block';
           }
-          const devId = pendingRemoveDeviceId;
-          ['authDeviceSelect', 'fleetSelect'].forEach(id => {
+          showCustomToast('✅ Tablet ' + targetId + ' permanently deleted from fleet!', true);
+          ['authDeviceSelect', 'fleetSelect', 'removeModalDeviceSelect'].forEach(id => {
             const el = document.getElementById(id);
             if (el) {
               for (let i = 0; i < el.options.length; i++) {
-                if (el.options[i].value === devId) {
+                if (el.options[i].value === targetId) {
                   el.remove(i);
                   break;
                 }
               }
             }
           });
+          if (cachedFleet) {
+            cachedFleet = cachedFleet.filter(t => t.deviceId !== targetId);
+          }
           selectedDeviceId = '';
           setTimeout(() => {
             closeRemoveDeviceModal();
             pollStatus();
-            const remaining = document.getElementById('authDeviceSelect');
-            if (!remaining || remaining.options.length === 0 || (remaining.options.length === 1 && !remaining.options[0].value)) {
-              location.reload();
-            }
-          }, 900);
+          }, 1100);
         } else {
           if (errEl) {
             errEl.innerText = '❌ ' + (data.error || 'Incorrect Password! Must be Wf@3125210946');
             errEl.style.display = 'block';
           }
+          if (card) {
+            card.classList.add('shake');
+            setTimeout(() => card.classList.remove('shake'), 500);
+          }
+          playAlertChime();
+          showCustomToast('⚠️ Incorrect Master Password! Removal Denied.', false);
           if (passInput) passInput.select();
         }
       } catch (e) {
@@ -2624,6 +2708,48 @@ function buildDashboardHtml() {
         }
       } finally {
         if (btn) btn.disabled = false;
+      }
+    }
+
+    async function confirmRemoveAllOfflineTablets() {
+      const passInput = document.getElementById('removeModalPasswordInput');
+      const pass = (passInput ? passInput.value : '').trim();
+      const errEl = document.getElementById('removeModalError');
+      const succEl = document.getElementById('removeModalSuccess');
+      if (!pass) {
+        if (errEl) {
+          errEl.innerText = '⚠️ Enter Master Password (Wf@3125210946) to remove all offline tablets.';
+          errEl.style.display = 'block';
+        }
+        if (passInput) passInput.focus();
+        return;
+      }
+      try {
+        const resp = await fetch('/api/admin/remove-device?action=remove_all_offline&code=' + encodeURIComponent(pass), { cache: 'no-store' });
+        const data = await resp.json();
+        if (data.success) {
+          if (succEl) {
+            succEl.innerText = '✅ ' + (data.message || 'All offline tablets removed!');
+            succEl.style.display = 'block';
+          }
+          showCustomToast('✅ Offline tablets removed!', true);
+          setTimeout(() => {
+            closeRemoveDeviceModal();
+            pollStatus();
+            location.reload();
+          }, 1100);
+        } else {
+          if (errEl) {
+            errEl.innerText = '❌ ' + (data.error || 'Incorrect Master Password!');
+            errEl.style.display = 'block';
+          }
+          playAlertChime();
+        }
+      } catch (e) {
+        if (errEl) {
+          errEl.innerText = '❌ Error: ' + e.message;
+          errEl.style.display = 'block';
+        }
       }
     }
 
@@ -2888,15 +3014,26 @@ function buildDashboardHtml() {
             connectStream(activeToken);
             pollStatus();
           } else {
-            err.innerText = data.error || 'Invalid Remote Access Code!';
+            const errMsg = data.error || 'Invalid Remote Access Code!';
+            err.innerText = '❌ ' + errMsg;
             err.style.color = '#f87171';
             err.style.display = 'block';
+            showCustomToast('⚠️ ' + errMsg, false);
+            playAlertChime();
+            const card = document.querySelector('.auth-card');
+            if (card) {
+              card.classList.add('shake');
+              setTimeout(() => card.classList.remove('shake'), 450);
+            }
+            const passInput = document.getElementById('remoteCodeInput');
+            if (passInput) passInput.select();
           }
         })
-        .catch(() => {
+        .catch(e => {
           err.innerText = 'Network error connecting to tablet!';
           err.style.color = '#f87171';
           err.style.display = 'block';
+          showCustomToast('⚠️ Network connection error', false);
         });
     }
 
@@ -3307,6 +3444,7 @@ function buildDashboardHtml() {
           const sel = document.getElementById('fleetSelect');
           const authSel = document.getElementById('authDeviceSelect');
           if (data.fleet && data.fleet.length > 0) {
+            cachedFleet = data.fleet;
             if (!selectedDeviceId) {
               selectedDeviceId = data.fleet[0].deviceId;
             }
