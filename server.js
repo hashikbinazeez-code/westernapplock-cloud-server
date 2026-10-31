@@ -1516,7 +1516,7 @@ function buildDashboardHtml() {
       <div id="authDeviceSelectContainer" style="margin-bottom:12px; text-align:left;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
           <label style="font-size:0.75rem; color:#94a3b8; font-weight:700;">Select Target Branch Tablet:</label>
-          <button type="button" onclick="openFleetManagerModal()" style="background:#1e293b; border:1px solid #ef4444; color:#f87171; font-size:0.75rem; font-weight:700; cursor:pointer; padding:3px 9px; border-radius:6px; display:inline-flex; align-items:center; gap:4px;" title="Manage fleet & remove damaged tablets">&#128465; Manage Fleet / Remove Tablet</button>
+          <button type="button" onclick="removeSelectedTablet('authDeviceSelect')" style="background:#dc2626; border:none; color:#ffffff; font-size:0.75rem; font-weight:700; cursor:pointer; padding:3px 10px; border-radius:6px; display:inline-flex; align-items:center; gap:4px; box-shadow:0 2px 4px rgba(220,38,38,0.4);" title="Select a tablet below and click here to remove">&#128465; Remove Selected</button>
         </div>
         <select id="authDeviceSelect" class="input-type" onchange="selectFleetDevice(this.value)" style="width:100%; margin-bottom:0; padding:8px 10px; font-size:0.85rem; font-weight:700; color:#38bdf8; border:1px solid #38bdf8; background:#0f172a; border-radius:8px; outline:none; cursor:pointer;">
           ${initialDeviceOptions}
@@ -1792,7 +1792,7 @@ function buildDashboardHtml() {
         <select id="fleetSelect" class="device-info" onchange="selectFleetDevice(this.value)" title="Switch Active Tablet" style="display:inline-flex; cursor:pointer; outline:none; border-color:#38bdf8; color:#38bdf8; font-weight:700;">
           ${initialDeviceOptions}
         </select>
-        <button type="button" onclick="openFleetManagerModal()" class="device-info" style="cursor:pointer; border-color:#ef4444; color:#f87171; font-weight:700; background:transparent;" title="Manage fleet and remove damaged tablets">&#128465; Delete Tablet</button>
+        <button type="button" onclick="removeSelectedTablet('fleetSelect')" class="device-info" style="cursor:pointer; border-color:#ef4444; color:#f87171; font-weight:700; background:transparent;" title="Select a tablet in dropdown and click here to remove">&#128465; Remove Selected</button>
         <div class="device-info" id="headerDeviceName">📱 Shola Test Tab</div>
         <div class="device-info" id="headerBattery">🔋 --</div>
         <div class="device-info green" id="statScreen">📱 Screen: ON</div>
@@ -2479,68 +2479,61 @@ function buildDashboardHtml() {
         });
     }
 
-    async function promptRemoveDeviceFromLogin() {
-      const select = document.getElementById('authDeviceSelect');
-      const devId = select ? select.value : '';
+    async function removeSelectedTablet(selectElementId) {
+      const select = document.getElementById(selectElementId || 'authDeviceSelect') || document.getElementById('authDeviceSelect') || document.getElementById('fleetSelect');
+      const devId = (select && select.value) ? select.value.trim() : (selectedDeviceId || '');
       if (!devId) {
-        alert('Please select a tablet from the dropdown first.');
+        alert('⚠️ Please select a tablet from the dropdown list first.');
         return;
       }
-      const selectedOption = select.options[select.selectedIndex];
+      const selectedOption = (select && select.selectedIndex >= 0) ? select.options[select.selectedIndex] : null;
       const devText = selectedOption ? selectedOption.textContent.trim() : devId;
 
       const codeInput = document.getElementById('remoteCodeInput');
-      let adminCode = (codeInput && codeInput.value) ? codeInput.value.trim() : '';
+      let adminCode = (codeInput && codeInput.value) ? codeInput.value.trim() : (getAuthCode() || '');
 
       if (!adminCode) {
-        adminCode = prompt('Enter Admin Code (7866, 8080 or Wf@3125210946) to permanently delete:\n\n' + devText);
+        adminCode = prompt('Are you sure you want to permanently remove this tablet from the fleet?\n\n' + devText + '\n\nConfirm Admin Code (default 7866):', '7866');
+        if (!adminCode) return;
+        adminCode = adminCode.trim();
       } else {
-        if (!confirm('Are you sure you want to permanently delete this tablet from fleet?\n\n' + devText)) {
+        if (!confirm('Are you sure you want to permanently remove this tablet from the fleet?\n\n' + devText)) {
           return;
         }
       }
 
-      if (!adminCode) return;
-
       try {
         const resp = await fetch('/api/admin/remove-device?deviceId=' + encodeURIComponent(devId) + '&code=' + encodeURIComponent(adminCode), { cache: 'no-store' });
         const data = await resp.json();
-          // Immediate device dropdown sync
-          const sel = document.getElementById('fleetSelect');
-          const authSel = document.getElementById('authDeviceSelect');
-          if (data.alerts) handleIncomingAlerts(data.alerts);
-          if (data.fleet && data.fleet.length > 0) {
-            if (!selectedDeviceId) {
-              selectedDeviceId = data.fleet[0].deviceId;
-            }
-            const updateSelectDropdown = (el, isHeader) => {
-              if (!el) return;
-              el.style.display = isHeader ? 'inline-flex' : 'block';
-              if (document.activeElement !== el) {
-                const currentVal = el.value || selectedDeviceId;
-                el.innerHTML = '';
-                data.fleet.forEach(t => {
-                  const opt = document.createElement('option');
-                  opt.value = t.deviceId;
-                  opt.selected = (t.deviceId === currentVal);
-                  const ipStr = t.localIp ? (' • IP: ' + t.localIp) : '';
-                  opt.textContent = '📱 ' + (t.online ? '🟢 ' : '🔴 ') + t.deviceName + ' [' + t.deviceId + ']' + ipStr + ' • 🔋' + t.batteryPct + '%';
-                  el.appendChild(opt);
-                });
-              }
-            };
-            updateSelectDropdown(sel, true);
-            updateSelectDropdown(authSel, false);
-          }
         if (data.success) {
-          alert('✅ Tablet removed successfully:\n' + devText);
-          location.reload();
+          alert('✅ Tablet removed successfully from fleet:\n\n' + devText);
+          selectedDeviceId = '';
+          ['authDeviceSelect', 'fleetSelect'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+              for (let i = 0; i < el.options.length; i++) {
+                if (el.options[i].value === devId) {
+                  el.remove(i);
+                  break;
+                }
+              }
+            }
+          });
+          pollStatus();
+          const remaining = document.getElementById('authDeviceSelect');
+          if (!remaining || remaining.options.length === 0 || (remaining.options.length === 1 && !remaining.options[0].value)) {
+            location.reload();
+          }
         } else {
-          alert('❌ Failed to remove tablet: ' + (data.error || 'Invalid Admin Code'));
+          alert('❌ Failed to remove tablet: ' + (data.error || 'Invalid Admin Code (7866)'));
         }
       } catch (err) {
         alert('❌ Error connecting to server: ' + err.message);
       }
+    }
+
+    function promptRemoveDeviceFromLogin() {
+      removeSelectedTablet('authDeviceSelect');
     }
 
     
@@ -2672,9 +2665,7 @@ function buildDashboardHtml() {
       if (modal) modal.style.display = 'none';
     }
 
-    function promptRemoveDeviceFromLogin() {
-      openFleetManagerModal();
-    }
+
 
     async function renderFleetManagerList() {
       const listContainer = document.getElementById('fleetManagerList');
