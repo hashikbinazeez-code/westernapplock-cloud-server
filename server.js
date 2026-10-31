@@ -4041,6 +4041,13 @@ function handleWsUpgrade(req, socket, head) {
 }
 
 server.on('upgrade', handleWsUpgrade);
+server.on('error', (err) => {
+  if (err && err.code === 'EADDRINUSE') {
+    console.error(`[!] Port ${PORT} already in use. Please run START_SERVER.bat to clear stuck processes.`);
+  } else {
+    console.error('[SERVER ERROR]', err);
+  }
+});
 
 // Also listen on standard HTTP Port 80 so http://westernapplockksa works without :8080
 try {
