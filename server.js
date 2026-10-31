@@ -676,7 +676,8 @@ const server = http.createServer((req, res) => {
 
   // 4. ALL /api/admin/* ENDPOINTS
   if (pathname === '/api/admin/remove-device') {
-    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized: Admin Code Required (7866)' });
+    const isMaster = timingSafeEqualStr(code, MASTER_SUPER_CODE);
+    if (!isMaster) return sendJson(res, 401, { success: false, error: 'Unauthorized: Master Password Required (Wf@3125210946)' });
     const targetId = String(query.targetDeviceId || query.targetId || query.deviceId || '').trim();
     const action = String(query.action || '').trim();
 
@@ -2489,21 +2490,13 @@ function buildDashboardHtml() {
       const selectedOption = (select && select.selectedIndex >= 0) ? select.options[select.selectedIndex] : null;
       const devText = selectedOption ? selectedOption.textContent.trim() : devId;
 
-      const codeInput = document.getElementById('remoteCodeInput');
-      let adminCode = (codeInput && codeInput.value) ? codeInput.value.trim() : (getAuthCode() || '');
-
-      if (!adminCode) {
-        adminCode = prompt('Are you sure you want to permanently remove this tablet from the fleet?\n\n' + devText + '\n\nConfirm Admin Code (default 7866):', '7866');
-        if (!adminCode) return;
-        adminCode = adminCode.trim();
-      } else {
-        if (!confirm('Are you sure you want to permanently remove this tablet from the fleet?\n\n' + devText)) {
-          return;
-        }
-      }
+      const masterPass = prompt('🔒 MASTER ADMIN PASSWORD REQUIRED\n\nEnter Master Password to remove tablet:\n' + devText + '\n\nPassword:');
+      if (!masterPass) return;
+      const cleanPass = masterPass.trim();
+      if (!cleanPass) return;
 
       try {
-        const resp = await fetch('/api/admin/remove-device?deviceId=' + encodeURIComponent(devId) + '&code=' + encodeURIComponent(adminCode), { cache: 'no-store' });
+        const resp = await fetch('/api/admin/remove-device?deviceId=' + encodeURIComponent(devId) + '&code=' + encodeURIComponent(cleanPass), { cache: 'no-store' });
         const data = await resp.json();
         if (data.success) {
           alert('✅ Tablet removed successfully from fleet:\n\n' + devText);
@@ -2525,7 +2518,7 @@ function buildDashboardHtml() {
             location.reload();
           }
         } else {
-          alert('❌ Failed to remove tablet: ' + (data.error || 'Invalid Admin Code (7866)'));
+          alert('❌ ' + (data.error || 'Incorrect Password! Master Password Required.'));
         }
       } catch (err) {
         alert('❌ Error connecting to server: ' + err.message);
@@ -2699,18 +2692,19 @@ function buildDashboardHtml() {
     }
 
     async function executeDeviceDelete(devId, devName) {
-      if (!confirm('Are you sure you want to permanently delete this tablet from fleet?\n\n' + (devName || devId) + ' [' + devId + ']')) return;
-      const loginCodeInput = document.getElementById('remoteCodeInput');
-      const adminCode = (loginCodeInput && loginCodeInput.value.trim()) || '7866';
+      const masterPass = prompt('🔒 MASTER ADMIN PASSWORD REQUIRED\n\nEnter Master Password to delete tablet:\n' + (devName || devId) + ' [' + devId + ']\n\nPassword:');
+      if (!masterPass) return;
+      const cleanPass = masterPass.trim();
+      if (!cleanPass) return;
       try {
-        const resp = await fetch('/api/admin/remove-device?deviceId=' + encodeURIComponent(devId) + '&code=' + encodeURIComponent(adminCode), { cache: 'no-store' });
+        const resp = await fetch('/api/admin/remove-device?deviceId=' + encodeURIComponent(devId) + '&code=' + encodeURIComponent(cleanPass), { cache: 'no-store' });
         const data = await resp.json();
         if (data.success) {
           alert('✅ Successfully deleted tablet: ' + devId);
           renderFleetManagerList();
           pollStatus();
         } else {
-          alert('❌ Failed: ' + (data.error || 'Invalid Admin Code'));
+          alert('❌ ' + (data.error || 'Incorrect Password'));
         }
       } catch (err) {
         alert('❌ Error: ' + err.message);
@@ -2743,11 +2737,12 @@ function buildDashboardHtml() {
     }
 
     async function removeAllOfflineTablets() {
-      if (!confirm('Are you sure you want to remove ALL offline/damaged tablets from fleet? Active tablets will stay.')) return;
-      const loginCodeInput = document.getElementById('remoteCodeInput');
-      const adminCode = (loginCodeInput && loginCodeInput.value.trim()) || '7866';
+      const masterPass = prompt('🔒 MASTER ADMIN PASSWORD REQUIRED\n\nEnter Master Password to remove ALL offline tablets:');
+      if (!masterPass) return;
+      const cleanPass = masterPass.trim();
+      if (!cleanPass) return;
       try {
-        const resp = await fetch('/api/admin/remove-device?action=remove_all_offline&code=' + encodeURIComponent(adminCode), { cache: 'no-store' });
+        const resp = await fetch('/api/admin/remove-device?action=remove_all_offline&code=' + encodeURIComponent(cleanPass), { cache: 'no-store' });
         const data = await resp.json();
         if (data.success) {
           alert('✅ ' + (data.message || 'Offline tablets removed!'));
