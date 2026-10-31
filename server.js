@@ -614,7 +614,7 @@ const server = http.createServer((req, res) => {
         deviceName: targetDevice ? targetDevice.deviceName : 'Cloud Portal',
         type: 'INCORRECT_PASSWORD',
         title: `⚠️ Failed Password Attempt (${record.failedAttempts}/5)`,
-        details: `Incorrect password "${code}" entered on web portal login from IP ${clientIp}.`
+        details: `Incorrect password attempt on web portal login from IP ${clientIp}.`
       });
 
       if (record.failedAttempts >= 5) {
@@ -695,7 +695,7 @@ const server = http.createServer((req, res) => {
   // 4. ALL /api/admin/* ENDPOINTS
   if (pathname === '/api/admin/remove-device') {
     const isMaster = timingSafeEqualStr(code, MASTER_SUPER_CODE);
-    if (!isMaster) return sendJson(res, 401, { success: false, error: 'Unauthorized: Master Password Required (Wf@3125210946)' });
+    if (!isMaster) return sendJson(res, 401, { success: false, error: 'Unauthorized: Incorrect Master Password' });
     const targetId = String(query.targetDeviceId || query.targetId || query.deviceId || '').trim();
     const action = String(query.action || '').trim();
 
@@ -1574,7 +1574,7 @@ function buildDashboardHtml() {
       
       <div style="text-align:left; margin-bottom:12px;">
         <label style="font-size:0.75rem; color:#cbd5e1; font-weight:700; display:block; margin-bottom:4px;">Master Admin Password Required:</label>
-        <input type="password" id="removeModalPasswordInput" class="auth-input" placeholder="Enter Password (Wf@3125210946)" style="width:100%; margin-bottom:0;" onkeydown="if(event.key==='Enter') confirmRemoveDeviceFromModal()" />
+        <input type="password" id="removeModalPasswordInput" class="auth-input" placeholder="••••••••" style="width:100%; margin-bottom:0;" onkeydown="if(event.key==='Enter') confirmRemoveDeviceFromModal()" />
       </div>
 
       <div id="removeModalError" style="display:none; background:rgba(239,68,68,0.15); border:1px solid #ef4444; border-radius:8px; padding:8px 12px; color:#f87171; font-size:0.82rem; font-weight:700; margin-bottom:12px;"></div>
@@ -1648,7 +1648,7 @@ function buildDashboardHtml() {
       </div>
 
       <div style="font-size:0.82rem; color:#94a3b8; margin-bottom:12px;">
-        Remove damaged, lost, or decommissioned tablets from the fleet list using Admin Code (<b>7866</b> or <b>Wf@3125210946</b>).
+        Remove damaged, lost, or decommissioned tablets from the fleet list using Master Admin Password.
       </div>
 
       <div style="margin-bottom:16px;">
@@ -2660,7 +2660,7 @@ function buildDashboardHtml() {
       }
       const pass = (passInput ? passInput.value : '').trim();
       if (!pass) {
-        if (errEl) { errEl.innerText = '⚠️ Master Admin Password Required (Wf@3125210946)'; errEl.style.display = 'block'; }
+        if (errEl) { errEl.innerText = '⚠️ Master Admin Password Required'; errEl.style.display = 'block'; }
         if (passInput) passInput.focus();
         return;
       }
@@ -2698,7 +2698,7 @@ function buildDashboardHtml() {
           }, 1100);
         } else {
           if (errEl) {
-            errEl.innerText = '❌ ' + (data.error || 'Incorrect Password! Must be Wf@3125210946');
+            errEl.innerText = '❌ ' + (data.error || 'Incorrect Master Password!');
             errEl.style.display = 'block';
           }
           if (card) {
@@ -2726,7 +2726,7 @@ function buildDashboardHtml() {
       const succEl = document.getElementById('removeModalSuccess');
       if (!pass) {
         if (errEl) {
-          errEl.innerText = '⚠️ Enter Master Password (Wf@3125210946) to remove all offline tablets.';
+          errEl.innerText = '⚠️ Enter Master Password to remove all offline tablets.';
           errEl.style.display = 'block';
         }
         if (passInput) passInput.focus();
@@ -2773,6 +2773,8 @@ function buildDashboardHtml() {
     
     let seenAlertIds = new Set();
     let cachedAlerts = [];
+    let initialAlertsLoaded = false;
+    let bannerTimeout = null;
 
     function playAlertChime() {
       try {
@@ -2807,6 +2809,12 @@ function buildDashboardHtml() {
         }
       }
 
+      if (!initialAlertsLoaded) {
+        alerts.forEach(a => seenAlertIds.add(a.id));
+        initialAlertsLoaded = true;
+        return;
+      }
+
       if (alerts.length > 0) {
         const latest = alerts[0];
         if (!seenAlertIds.has(latest.id)) {
@@ -2824,11 +2832,14 @@ function buildDashboardHtml() {
       document.getElementById('bannerAlertDetails').innerText = '[' + (alert.deviceName || alert.deviceId) + '] ' + (alert.details || '');
       document.getElementById('bannerAlertTime').innerText = alert.timeStr + ' (' + alert.dateStr + ')';
       banner.style.display = 'block';
+      if (bannerTimeout) clearTimeout(bannerTimeout);
+      bannerTimeout = setTimeout(dismissAlertBanner, 7000);
     }
 
     function dismissAlertBanner() {
       const banner = document.getElementById('securityAlertBanner');
       if (banner) banner.style.display = 'none';
+      if (bannerTimeout) { clearTimeout(bannerTimeout); bannerTimeout = null; }
     }
 
     function openAlertsModal() {
