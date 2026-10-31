@@ -1072,14 +1072,12 @@ const server = http.createServer((req, res) => {
       req.socket.remoteAddress === '::ffff:127.0.0.1'
     );
 
-    // PERMANENTLY BLOCK direct localhost:8080 - NEVER SERVE PORTAL ON LOCALHOST
+    // PERMANENTLY HARD-BLOCK direct localhost:8080 - TERMINATE SOCKET IMMEDIATELY (ERR_EMPTY_RESPONSE)
     if (isDirectLocal) {
-      res.writeHead(403, {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
-        'X-Content-Type-Options': 'nosniff'
-      });
-      return res.end('<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>403 Forbidden - Localhost Access Blocked</title><style>body{margin:0;padding:0;background:#0b1120;color:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;text-align:center;}.box{background:#1e293b;border:1px solid #ef4444;border-radius:16px;padding:36px 30px;max-width:460px;box-shadow:0 20px 50px rgba(0,0,0,0.7);}h1{color:#f87171;font-size:1.6rem;margin:0 0 10px;}p{color:#94a3b8;font-size:0.95rem;line-height:1.5;margin:10px 0;}.badge{display:inline-block;background:rgba(239,68,68,0.2);color:#fca5a5;padding:6px 14px;border-radius:8px;font-weight:700;font-size:0.85rem;margin-bottom:16px;}.link-btn{display:inline-block;margin-top:18px;padding:12px 24px;background:#0284c7;color:#ffffff;text-decoration:none;font-weight:700;border-radius:10px;font-size:1rem;}.link-btn:hover{background:#0369a1;}</style></head><body><div class="box"><div class="badge">&#128683; ACCESS BLOCKED</div><h1>http://localhost:8080 is Blocked</h1><p>Direct localhost access is disabled. The Western AppLock portal does not run under localhost.</p><p>Please use the official Live Cloud Portal:</p><a href="https://is.gd/westernintapplock" class="link-btn">Open https://is.gd/westernintapplock</a></div></body></html>');
+      try {
+        req.socket.destroy();
+      } catch (_) {}
+      return;
     }
 
     const html = buildDashboardHtml();
