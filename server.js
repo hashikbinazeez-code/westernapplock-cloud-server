@@ -147,6 +147,7 @@ function addSecurityAlert(alert) {
   try {
     const reqNtfy = https.request({
       hostname: 'ntfy.sh',
+      family: 4,
       port: 443,
       path: '/western_ksa_3125210946',
       method: 'POST',
@@ -3383,6 +3384,7 @@ function broadcastPublicUrlToTablets(publicUrl) {
   // 1. Publish to primary ntfy topic (western_ksa_3125210946)
   const req1 = https.request({
     hostname: 'ntfy.sh',
+      family: 4,
     port: 443,
     path: '/' + AUTO_SYNC_TOPIC,
     method: 'POST',
@@ -3399,6 +3401,7 @@ function broadcastPublicUrlToTablets(publicUrl) {
   try {
     const req2 = https.request({
       hostname: 'ntfy.sh',
+      family: 4,
       port: 443,
       path: '/' + LEGACY_SYNC_TOPIC,
       method: 'POST',
@@ -3436,6 +3439,7 @@ function broadcastPublicUrlToTablets(publicUrl) {
     const lanUrl = `http://${lanIp}:${PORT}`;
     const reqLan = https.request({
       hostname: 'ntfy.sh',
+      family: 4,
       port: 443,
       path: '/western_applock_lan_3125210946',
       method: 'POST',
@@ -3454,6 +3458,7 @@ function broadcastPublicUrlToTablets(publicUrl) {
   const htmlRedirect = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${currentPublicHttpsUrl}"><script>window.location.replace('${currentPublicHttpsUrl}');</script></head><body style="background:#0b1120;color:#fff;font-family:sans-serif;text-align:center;padding-top:20vh;">Connecting to Western AppLock KSA...</body></html>`;
   const req2 = https.request({
     hostname: 'ntfy.sh',
+      family: 4,
     port: 443,
     path: '/western_applock_ksa_go_2026',
     method: 'POST',
