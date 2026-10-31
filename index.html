@@ -149,62 +149,58 @@
       instr.style.display = 'none';
       retryBtn.style.display = 'none';
 
-      // 1. Fetch fresh link candidates from ntfy FIRST (zero CDN cache latency), then GitHub Raw
-      const sources = [
-        'https://ntfy.sh/western_ksa_3125210946/raw?poll=1&since=all&_t=' + Date.now(),
-        'https://ntfy.sh/western_applock_sync_3125210946/raw?poll=1&since=all&_t=' + Date.now(),
-        'https://raw.githubusercontent.com/hashikbinazeez-code/westernapplock-cloud-server/main/CURRENT_PUBLIC_HTTPS_LINK.txt?_t=' + Date.now()
-      ];
-
-      const candidates = [];
-
-      for (const src of sources) {
+      // 1. Fetch fresh link from GitHub Raw FIRST (100% Reliable, Zero Quota Limit)
+      const testCandidate = async (candidate) => {
+        if (!candidate || !candidate.startsWith('https://')) return false;
         try {
           const ctrl = new AbortController();
-          const t = setTimeout(() => ctrl.abort(), 1800);
-          const res = await fetch(src, { signal: ctrl.signal, cache: 'no-store' });
-          clearTimeout(t);
-          if (res && res.ok) {
-            const text = await res.text();
-            const urls = text.trim().split('\n')
-              .map(s => s.trim())
-              .filter(s => s.startsWith('https://') && s.includes('trycloudflare.com') && !s.includes('api.trycloudflare.com'));
-            for (const u of urls.reverse()) {
-              if (!candidates.includes(u)) candidates.push(u);
-            }
-          }
-        } catch (_) {}
-      }
-
-      // 2. Test candidates concurrently for fastest live /api/status response
-      const checkCandidate = async (candidate) => {
-        try {
-          const ctrl = new AbortController();
-          const t = setTimeout(() => ctrl.abort(), 2200);
+          const t = setTimeout(() => ctrl.abort(), 2500);
           const check = await fetch(candidate + '/api/status', { signal: ctrl.signal, cache: 'no-store' });
           clearTimeout(t);
           if (check && check.ok) {
             const data = await check.json();
-            if (data && (data.status || data.fleet)) return candidate;
+            if (data && (data.status || data.fleet)) {
+              if (!isConnected) {
+                isConnected = true;
+                badge.textContent = 'Connected 🟢';
+                badge.style.background = '#15803d';
+                msg.textContent = 'Loading live portal...';
+                iframe.src = candidate;
+                loadingContainer.style.display = 'none';
+                iframe.style.display = 'block';
+              }
+              return true;
+            }
           }
         } catch (_) {}
-        return null;
+        return false;
       };
 
-      const results = await Promise.all(candidates.map(c => checkCandidate(c)));
-      const workingCandidate = results.find(Boolean);
+      // Check GitHub Raw link first
+      try {
+        const ghRes = await fetch('https://raw.githubusercontent.com/hashikbinazeez-code/westernapplock-cloud-server/main/CURRENT_PUBLIC_HTTPS_LINK.txt?_t=' + Date.now(), { cache: 'no-store' });
+        if (ghRes && ghRes.ok) {
+          const rawUrl = (await ghRes.text()).trim();
+          const validUrl = rawUrl.split('\n').map(s => s.trim()).filter(s => s.startsWith('https://') && s.includes('trycloudflare.com'))[0];
+          if (validUrl) {
+            const ok = await testCandidate(validUrl);
+            if (ok) return;
+          }
+        }
+      } catch (_) {}
 
-      if (workingCandidate && !isConnected) {
-        isConnected = true;
-        badge.textContent = 'Connected 🟢';
-        badge.style.background = '#15803d';
-        msg.textContent = 'Loading live portal...';
-
-        iframe.src = workingCandidate;
-        loadingContainer.style.display = 'none';
-        iframe.style.display = 'block';
-        return;
-      }
+      // Fallback check ntfy
+      try {
+        const ntfyRes = await fetch('https://ntfy.sh/western_ksa_3125210946/raw?poll=1&since=all&_t=' + Date.now(), { cache: 'no-store' });
+        if (ntfyRes && ntfyRes.ok) {
+          const lines = (await ntfyRes.text()).trim().split('\n').map(s => s.trim()).filter(s => s.startsWith('https://') && s.includes('trycloudflare.com'));
+          const latestNtfy = lines.reverse().slice(0, 3);
+          for (const cand of latestNtfy) {
+            const ok = await testCandidate(cand);
+            if (ok) return;
+          }
+        }
+      } catch (_) {}
 
       // 3. If no candidate responded yet, show instructions and auto-retry
       loader.style.display = 'none';
@@ -214,7 +210,7 @@
       instr.style.display = 'block';
       retryBtn.style.display = 'inline-block';
 
-      setTimeout(discoverAndConnect, 3000);
+      setTimeout(discoverAndConnect, 2500);
     }
 
     window.addEventListener('DOMContentLoaded', discoverAndConnect);
