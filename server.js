@@ -3415,13 +3415,19 @@ function broadcastPublicUrlToTablets(publicUrl) {
   // 3. Auto-push to GitHub repository so GitHub Pages & raw URL are always 100% updated
   try {
     const { exec } = require('child_process');
-    // Also write to Any_Network_Cloud_Server
-    const altLinkPath = path.resolve(__dirname, '..', 'Any_Network_Cloud_Server', 'CURRENT_PUBLIC_HTTPS_LINK.txt');
-    try { fs.writeFileSync(altLinkPath, currentPublicHttpsUrl + '\n', 'utf8'); } catch (_) {}
-    const gitDir = path.resolve(__dirname, '..', 'Any_Network_Cloud_Server');
-    exec('git add CURRENT_PUBLIC_HTTPS_LINK.txt index.html && git commit -m "Auto-sync live tunnel [skip ci]" && git pull --rebase origin main && git push origin main', { cwd: gitDir }, (err) => {
-      if (!err) console.log(' [+] GitHub Pages synced with live Cloudflare tunnel.');
-    });
+    const candidates = [
+      path.resolve(__dirname, '..', '..', 'Any_Network_Cloud_Server'),
+      path.resolve(__dirname, '..', 'Any_Network_Cloud_Server'),
+      __dirname
+    ];
+    const gitDir = candidates.find(dir => fs.existsSync(path.join(dir, '.git')));
+    if (gitDir) {
+      const linkFile = path.join(gitDir, 'CURRENT_PUBLIC_HTTPS_LINK.txt');
+      try { fs.writeFileSync(linkFile, currentPublicHttpsUrl + '\n', 'utf8'); } catch (_) {}
+      exec('git add CURRENT_PUBLIC_HTTPS_LINK.txt index.html && git commit -m "Auto-sync live tunnel [skip ci]" && git pull --rebase origin main && git push origin main', { cwd: gitDir }, (err) => {
+        if (!err) console.log(' [+] GitHub Pages synced with live Cloudflare tunnel: ' + currentPublicHttpsUrl);
+      });
+    }
   } catch (_) {}
 
   // Also broadcast the laptop's local LAN HTTP URL so tablets on the same Wi-Fi connect in 1ms
