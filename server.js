@@ -663,7 +663,8 @@ const server = http.createServer((req, res) => {
       isScreenOn: dev ? dev.isScreenOn : true,
       lastScreenOn: dev ? dev.lastScreenOn : 'Just now',
       lastDisconnect: 'None',
-      fleet
+      fleet,
+      alerts: securityAlerts.slice(0, 15)
     });
   }
 
@@ -3207,6 +3208,8 @@ function buildDashboardHtml() {
             const devEl = document.getElementById('headerDeviceName');
             if (devEl) devEl.innerText = '📱 ' + data.deviceName;
           }
+
+          if (data.alerts) handleIncomingAlerts(data.alerts);
 
           const sel = document.getElementById('fleetSelect');
           const authSel = document.getElementById('authDeviceSelect');
