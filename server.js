@@ -598,13 +598,24 @@ const server = http.createServer((req, res) => {
       });
     } else {
       record.failedAttempts += 1;
+      const left = Math.max(0, 5 - record.failedAttempts);
+
+      // Instant security alert on ANY incorrect password attempt
+      addSecurityAlert({
+        deviceId: targetDevice ? targetDevice.deviceId : 'WEB-PORTAL',
+        deviceName: targetDevice ? targetDevice.deviceName : 'Cloud Portal',
+        type: 'INCORRECT_PASSWORD',
+        title: `⚠️ Failed Password Attempt (${record.failedAttempts}/5)`,
+        details: `Incorrect password "${code}" entered on web portal login from IP ${clientIp}.`
+      });
+
       if (record.failedAttempts >= 5) {
         record.lockedUntilMs = now + 15 * 60 * 1000;
         addSecurityAlert({
           deviceId: 'WEB-PORTAL',
           deviceName: 'Cloud Web Portal',
           type: 'BRUTE_FORCE_LOCKOUT',
-          title: '🚨 Security Alert: Web Portal Lockout (5 Failed Attempts)',
+          title: '🚨 CRITICAL: Web Portal Lockout (5 Failed Attempts)',
           details: `5 consecutive failed login attempts from IP ${clientIp}. IP locked out for 15 minutes.`
         });
         return sendJson(res, 200, {
@@ -612,7 +623,6 @@ const server = http.createServer((req, res) => {
           error: '🔒 5 Failed Attempts! Your IP is locked for 15 minutes for tablet security.'
         });
       }
-      const left = 5 - record.failedAttempts;
       return sendJson(res, 200, {
         success: false,
         error: `Invalid Remote Access Code (${left} attempts remaining before 15m lockout)`
@@ -1517,7 +1527,7 @@ function buildDashboardHtml() {
       <div id="authDeviceSelectContainer" style="margin-bottom:12px; text-align:left;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
           <label style="font-size:0.75rem; color:#94a3b8; font-weight:700;">Select Target Branch Tablet:</label>
-          <button type="button" onclick="removeSelectedTablet('authDeviceSelect')" style="background:#dc2626; border:none; color:#ffffff; font-size:0.75rem; font-weight:700; cursor:pointer; padding:3px 10px; border-radius:6px; display:inline-flex; align-items:center; gap:4px; box-shadow:0 2px 4px rgba(220,38,38,0.4);" title="Select a tablet below and click here to remove">&#128465; Remove Selected</button>
+          <button type="button" onclick="openRemoveDeviceModal('authDeviceSelect')" style="background:#dc2626; border:none; color:#ffffff; font-size:0.75rem; font-weight:700; cursor:pointer; padding:3px 10px; border-radius:6px; display:inline-flex; align-items:center; gap:4px; box-shadow:0 2px 4px rgba(220,38,38,0.4);" title="Select a tablet below and click here to remove">&#128465; Remove Selected</button>
         </div>
         <select id="authDeviceSelect" class="input-type" onchange="selectFleetDevice(this.value)" style="width:100%; margin-bottom:0; padding:8px 10px; font-size:0.85rem; font-weight:700; color:#38bdf8; border:1px solid #38bdf8; background:#0f172a; border-radius:8px; outline:none; cursor:pointer;">
           ${initialDeviceOptions}
@@ -1528,6 +1538,32 @@ function buildDashboardHtml() {
       <div id="authError" class="auth-error"></div>
       <div style="margin-top:14px; font-size:0.75rem; color:#64748b; text-align:center;">
         Live Cloud Portal: <a href="https://is.gd/westernintapplock" target="_blank" style="color:#38bdf8; text-decoration:none; font-weight:600;">https://is.gd/westernintapplock</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dedicated In-Page Remove Tablet Modal (100% immune to browser iframe prompt blocks) -->
+  <div class="app-overlay" id="removeDeviceModal" style="display:none; z-index:1000000; background:rgba(11,17,32,0.92); backdrop-filter:blur(8px);">
+    <div class="app-card-modal" style="max-width:440px; text-align:center; border:2px solid #ef4444; box-shadow:0 25px 60px rgba(0,0,0,0.85);">
+      <div style="font-size:2.8rem; margin-bottom:6px;">🗑️</div>
+      <h3 style="margin:0 0 6px 0; color:#f8fafc; font-size:1.25rem; font-weight:800;">Remove Tablet from Fleet</h3>
+      <div style="font-size:0.8rem; color:#94a3b8; margin-bottom:12px;">Permanently delete selected tablet from the active fleet.</div>
+      
+      <div id="removeModalDeviceDetails" style="background:#0f172a; border:1px solid #334155; border-radius:10px; padding:12px; margin-bottom:14px; font-size:0.88rem; color:#38bdf8; font-weight:800; word-break:break-all;">
+        <!-- Filled by JS -->
+      </div>
+      
+      <div style="text-align:left; margin-bottom:12px;">
+        <label style="font-size:0.75rem; color:#cbd5e1; font-weight:700; display:block; margin-bottom:4px;">Master Admin Password:</label>
+        <input type="password" id="removeModalPasswordInput" class="auth-input" placeholder="Enter Password (Wf@3125210946)" style="width:100%; margin-bottom:0;" onkeydown="if(event.key==='Enter') confirmRemoveDeviceFromModal()" />
+      </div>
+
+      <div id="removeModalError" style="display:none; background:rgba(239,68,68,0.15); border:1px solid #ef4444; border-radius:8px; padding:8px 12px; color:#f87171; font-size:0.82rem; font-weight:700; margin-bottom:12px;"></div>
+      <div id="removeModalSuccess" style="display:none; background:rgba(34,197,94,0.15); border:1px solid #22c55e; border-radius:8px; padding:8px 12px; color:#4ade80; font-size:0.85rem; font-weight:700; margin-bottom:12px;"></div>
+
+      <div style="display:flex; gap:10px; justify-content:center; margin-top:8px;">
+        <button type="button" class="btn-ctrl" onclick="closeRemoveDeviceModal()" style="padding:10px 20px; font-size:0.85rem; background:#334155; border:none; color:#fff; border-radius:8px; font-weight:700; cursor:pointer;">Cancel</button>
+        <button type="button" id="btnConfirmDelete" onclick="confirmRemoveDeviceFromModal()" style="padding:10px 22px; font-size:0.85rem; background:#dc2626; border:none; color:#fff; border-radius:8px; font-weight:800; cursor:pointer; box-shadow:0 3px 8px rgba(220,38,38,0.5);">🗑️ Confirm Remove</button>
       </div>
     </div>
   </div>
@@ -1793,7 +1829,7 @@ function buildDashboardHtml() {
         <select id="fleetSelect" class="device-info" onchange="selectFleetDevice(this.value)" title="Switch Active Tablet" style="display:inline-flex; cursor:pointer; outline:none; border-color:#38bdf8; color:#38bdf8; font-weight:700;">
           ${initialDeviceOptions}
         </select>
-        <button type="button" onclick="removeSelectedTablet('fleetSelect')" class="device-info" style="cursor:pointer; border-color:#ef4444; color:#f87171; font-weight:700; background:transparent;" title="Select a tablet in dropdown and click here to remove">&#128465; Remove Selected</button>
+        <button type="button" onclick="openRemoveDeviceModal('fleetSelect')" class="device-info" style="cursor:pointer; border-color:#ef4444; color:#f87171; font-weight:700; background:transparent;" title="Select a tablet in dropdown and click here to remove">&#128465; Remove Selected</button>
         <div class="device-info" id="headerDeviceName">📱 Shola Test Tab</div>
         <div class="device-info" id="headerBattery">🔋 --</div>
         <div class="device-info green" id="statScreen">📱 Screen: ON</div>
@@ -2480,27 +2516,80 @@ function buildDashboardHtml() {
         });
     }
 
-    async function removeSelectedTablet(selectElementId) {
-      const select = document.getElementById(selectElementId || 'authDeviceSelect') || document.getElementById('authDeviceSelect') || document.getElementById('fleetSelect');
+    let pendingRemoveDeviceId = '';
+    let pendingRemoveDeviceName = '';
+
+    function showCustomToast(msg, isSuccess = true) {
+      let toast = document.getElementById('inPageCustomToast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'inPageCustomToast';
+        toast.style.cssText = 'position:fixed; top:20px; left:50%; transform:translateX(-50%); background:#0f172a; border:2px solid ' + (isSuccess ? '#22c55e' : '#f43f5e') + '; color:#fff; font-size:0.85rem; font-weight:700; padding:12px 24px; border-radius:12px; box-shadow:0 12px 35px rgba(0,0,0,0.85); z-index:9999999; display:flex; align-items:center; gap:8px;';
+        document.body.appendChild(toast);
+      }
+      toast.style.borderColor = isSuccess ? '#22c55e' : '#f43f5e';
+      toast.innerHTML = (isSuccess ? '✅ ' : '⚠️ ') + msg;
+      toast.style.display = 'flex';
+      setTimeout(() => { if (toast) toast.style.display = 'none'; }, 4000);
+    }
+
+    function openRemoveDeviceModal(selectId) {
+      const select = document.getElementById(selectId || 'authDeviceSelect') || document.getElementById('authDeviceSelect') || document.getElementById('fleetSelect');
       const devId = (select && select.value) ? select.value.trim() : (selectedDeviceId || '');
       if (!devId) {
-        alert('⚠️ Please select a tablet from the dropdown list first.');
+        showCustomToast('Please select a tablet from the dropdown list first.', false);
         return;
       }
       const selectedOption = (select && select.selectedIndex >= 0) ? select.options[select.selectedIndex] : null;
       const devText = selectedOption ? selectedOption.textContent.trim() : devId;
 
-      const masterPass = prompt('🔒 MASTER ADMIN PASSWORD REQUIRED\n\nEnter Master Password to remove tablet:\n' + devText + '\n\nPassword:');
-      if (!masterPass) return;
-      const cleanPass = masterPass.trim();
-      if (!cleanPass) return;
+      pendingRemoveDeviceId = devId;
+      pendingRemoveDeviceName = devText;
+
+      const detailsEl = document.getElementById('removeModalDeviceDetails');
+      if (detailsEl) detailsEl.innerText = devText;
+      const passInput = document.getElementById('removeModalPasswordInput');
+      if (passInput) passInput.value = '';
+      const errEl = document.getElementById('removeModalError');
+      if (errEl) errEl.style.display = 'none';
+      const succEl = document.getElementById('removeModalSuccess');
+      if (succEl) succEl.style.display = 'none';
+
+      const modal = document.getElementById('removeDeviceModal');
+      if (modal) modal.style.display = 'flex';
+      setTimeout(() => { if (passInput) passInput.focus(); }, 120);
+    }
+
+    function closeRemoveDeviceModal() {
+      const modal = document.getElementById('removeDeviceModal');
+      if (modal) modal.style.display = 'none';
+      pendingRemoveDeviceId = '';
+    }
+
+    async function confirmRemoveDeviceFromModal() {
+      const passInput = document.getElementById('removeModalPasswordInput');
+      const errEl = document.getElementById('removeModalError');
+      const succEl = document.getElementById('removeModalSuccess');
+      const btn = document.getElementById('btnConfirmDelete');
+
+      const pass = (passInput ? passInput.value : '').trim();
+      if (!pass) {
+        if (errEl) { errEl.innerText = 'Please enter the Master Password (Wf@3125210946)'; errEl.style.display = 'block'; }
+        return;
+      }
+
+      if (btn) btn.disabled = true;
+      if (errEl) errEl.style.display = 'none';
 
       try {
-        const resp = await fetch('/api/admin/remove-device?deviceId=' + encodeURIComponent(devId) + '&code=' + encodeURIComponent(cleanPass), { cache: 'no-store' });
+        const resp = await fetch('/api/admin/remove-device?deviceId=' + encodeURIComponent(pendingRemoveDeviceId) + '&code=' + encodeURIComponent(pass), { cache: 'no-store' });
         const data = await resp.json();
         if (data.success) {
-          alert('✅ Tablet removed successfully from fleet:\n\n' + devText);
-          selectedDeviceId = '';
+          if (succEl) {
+            succEl.innerText = '✅ Tablet removed successfully!';
+            succEl.style.display = 'block';
+          }
+          const devId = pendingRemoveDeviceId;
           ['authDeviceSelect', 'fleetSelect'].forEach(id => {
             const el = document.getElementById(id);
             if (el) {
@@ -2512,21 +2601,38 @@ function buildDashboardHtml() {
               }
             }
           });
-          pollStatus();
-          const remaining = document.getElementById('authDeviceSelect');
-          if (!remaining || remaining.options.length === 0 || (remaining.options.length === 1 && !remaining.options[0].value)) {
-            location.reload();
-          }
+          selectedDeviceId = '';
+          setTimeout(() => {
+            closeRemoveDeviceModal();
+            pollStatus();
+            const remaining = document.getElementById('authDeviceSelect');
+            if (!remaining || remaining.options.length === 0 || (remaining.options.length === 1 && !remaining.options[0].value)) {
+              location.reload();
+            }
+          }, 900);
         } else {
-          alert('❌ ' + (data.error || 'Incorrect Password! Master Password Required.'));
+          if (errEl) {
+            errEl.innerText = '❌ ' + (data.error || 'Incorrect Password! Must be Wf@3125210946');
+            errEl.style.display = 'block';
+          }
+          if (passInput) passInput.select();
         }
-      } catch (err) {
-        alert('❌ Error connecting to server: ' + err.message);
+      } catch (e) {
+        if (errEl) {
+          errEl.innerText = '❌ Error: ' + e.message;
+          errEl.style.display = 'block';
+        }
+      } finally {
+        if (btn) btn.disabled = false;
       }
     }
 
+    function removeSelectedTablet(selectId) {
+      openRemoveDeviceModal(selectId);
+    }
+
     function promptRemoveDeviceFromLogin() {
-      removeSelectedTablet('authDeviceSelect');
+      openRemoveDeviceModal('authDeviceSelect');
     }
 
     
