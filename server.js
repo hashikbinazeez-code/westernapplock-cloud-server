@@ -8,6 +8,14 @@
  * - Security Hardened: Timing-safe PIN comparison, 5-attempt 15m IP lockout, 256-bit SHA-256 tokens, XSS-safe DOM rendering
  */
 
+
+process.on('uncaughtException', (err) => {
+  console.error('[UNCAUGHT EXCEPTION SAFEGUARD]', err ? (err.stack || err.message || err) : 'Unknown error');
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[UNHANDLED REJECTION SAFEGUARD]', reason);
+});
+
 const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
@@ -2911,11 +2919,24 @@ function buildDashboardHtml() {
           const isOnline = Boolean(t.online);
           const statusBadge = isOnline ? '<span style="color:#22c55e; font-weight:700;">🟢 Online</span>' : '<span style="color:#ef4444; font-weight:700;">🔴 Offline</span>';
           const ipStr = t.localIp ? (' • IP: ' + t.localIp) : '';
-          item.innerHTML = '<div style="text-align:left;">' +
-              '<div style="font-weight:700; color:#f8fafc; font-size:0.88rem;">' + t.deviceName + ' <span style="color:#38bdf8; font-size:0.75rem;">[' + t.deviceId + ']</span></div>' +
-              '<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">' + statusBadge + ipStr + ' &bull; &#128267; ' + t.batteryPct + '%</div>' +
-            '</div>' +
-            '<button type="button" onclick="executeDeviceDelete(\'' + t.deviceId + '\', \'' + (t.deviceName || t.deviceId).replace(/'/g, "") + '\')" style="background:#ef4444; color:#fff; border:none; border-radius:6px; padding:6px 12px; font-size:0.78rem; font-weight:700; cursor:pointer;" title="Delete this tablet from fleet">&#128465; Delete</button>';
+          
+          const infoDiv = document.createElement('div');
+          infoDiv.style.textAlign = 'left';
+          infoDiv.innerHTML = '<div style="font-weight:700; color:#f8fafc; font-size:0.88rem;">' + (t.deviceName || t.deviceId) + ' <span style="color:#38bdf8; font-size:0.75rem;">[' + t.deviceId + ']</span></div>' +
+            '<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">' + statusBadge + ipStr + ' &bull; 🔋 ' + t.batteryPct + '%</div>';
+          item.appendChild(infoDiv);
+
+          const delBtn = document.createElement('button');
+          delBtn.type = 'button';
+          delBtn.style.cssText = 'background:#ef4444; color:#fff; border:none; border-radius:6px; padding:6px 12px; font-size:0.78rem; font-weight:700; cursor:pointer;';
+          delBtn.innerHTML = '🗑️ Delete';
+          delBtn.title = 'Remove this tablet from fleet';
+          delBtn.addEventListener('click', () => {
+            closeFleetManagerModal();
+            openRemoveDeviceModal(t.deviceId);
+          });
+          item.appendChild(delBtn);
+
           listContainer.appendChild(item);
         });
       } catch (e) {
@@ -2923,69 +2944,20 @@ function buildDashboardHtml() {
       }
     }
 
-    async function executeDeviceDelete(devId, devName) {
-      const masterPass = prompt('🔒 MASTER ADMIN PASSWORD REQUIRED\n\nEnter Master Password to delete tablet:\n' + (devName || devId) + ' [' + devId + ']\n\nPassword:');
-      if (!masterPass) return;
-      const cleanPass = masterPass.trim();
-      if (!cleanPass) return;
-      try {
-        const resp = await fetch('/api/admin/remove-device?deviceId=' + encodeURIComponent(devId) + '&code=' + encodeURIComponent(cleanPass), { cache: 'no-store' });
-        const data = await resp.json();
-        if (data.success) {
-          alert('✅ Successfully deleted tablet: ' + devId);
-          renderFleetManagerList();
-          pollStatus();
-        } else {
-          alert('❌ ' + (data.error || 'Incorrect Password'));
-        }
-      } catch (err) {
-        alert('❌ Error: ' + err.message);
-      }
-    }
-
-    async function executeManualDeviceDelete() {
+    function executeManualDeviceDelete() {
       const input = document.getElementById('manualDeleteDevId');
-      const codeInput = document.getElementById('manualDeleteCode');
       const devId = input ? input.value.trim() : '';
-      const code = (codeInput && codeInput.value.trim()) || '7866';
       if (!devId) {
-        alert('Please enter a Device ID (e.g. WIG-F746D0)');
+        showCustomToast('Please enter a Device ID (e.g. WIG-F746D0)', false);
         return;
       }
-      try {
-        const resp = await fetch('/api/admin/remove-device?deviceId=' + encodeURIComponent(devId) + '&code=' + encodeURIComponent(code), { cache: 'no-store' });
-        const data = await resp.json();
-        if (data.success) {
-          alert('✅ Tablet ' + devId + ' removed successfully!');
-          if (input) input.value = '';
-          renderFleetManagerList();
-          pollStatus();
-        } else {
-          alert('❌ Failed: ' + (data.error || 'Error removing tablet'));
-        }
-      } catch (err) {
-        alert('❌ Error: ' + err.message);
-      }
+      closeFleetManagerModal();
+      openRemoveDeviceModal(devId);
     }
 
-    async function removeAllOfflineTablets() {
-      const masterPass = prompt('🔒 MASTER ADMIN PASSWORD REQUIRED\n\nEnter Master Password to remove ALL offline tablets:');
-      if (!masterPass) return;
-      const cleanPass = masterPass.trim();
-      if (!cleanPass) return;
-      try {
-        const resp = await fetch('/api/admin/remove-device?action=remove_all_offline&code=' + encodeURIComponent(cleanPass), { cache: 'no-store' });
-        const data = await resp.json();
-        if (data.success) {
-          alert('✅ ' + (data.message || 'Offline tablets removed!'));
-          renderFleetManagerList();
-          pollStatus();
-        } else {
-          alert('❌ Failed: ' + (data.error || 'Invalid Admin Code'));
-        }
-      } catch (err) {
-        alert('❌ Error: ' + err.message);
-      }
+    function removeAllOfflineTablets() {
+      closeFleetManagerModal();
+      openRemoveDeviceModal();
     }
 
     function submitAuth() {
