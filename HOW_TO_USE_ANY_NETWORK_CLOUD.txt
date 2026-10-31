@@ -13,10 +13,10 @@ You NEVER need Antigravity IDE open to run your server. It is 100% independent.
 
 Option A - Normal Window (Recommended):
   1. Open folder: D:\Last\30-12pm\2 Web Host\
-  2. Double-click: START_CLOUD_RELAY_SERVER.bat
+  2. Double-click: START_SERVER.bat
   3. A black Command Prompt window will open. Leave it open (or minimize it).
-  4. Your browser will automatically open to http://localhost:8080
-  5. The public worldwide link https://is.gd/westernintapplock will become LIVE!
+  4. Your browser will automatically open to https://is.gd/westernintapplock
+  5. The public worldwide link https://is.gd/westernintapplock is LIVE!
 
 Option B - Silent Background Mode (No Black Window):
   1. Double-click: START_BACKGROUND_SERVER.vbs
@@ -29,7 +29,7 @@ Option C - Auto-Start When Laptop Powers On:
 ================================================================================
 PART 2: MANAGEMENT & CHECK SCRIPTS
 ================================================================================
-- STATUS_CHECK.bat:
+- CHECK_STATUS.bat:
   Double-click anytime to check if the server & Cloudflare tunnel are running,
   view the current public HTTPS link, and test connectivity.
 
@@ -40,7 +40,6 @@ PART 2: MANAGEMENT & CHECK SCRIPTS
 PART 3: ACCESS CODES & CREDENTIALS
 ================================================================================
 - Live Worldwide Web Link:    https://is.gd/westernintapplock
-- Local Laptop Web Link:       http://localhost:8080
 - Web Dashboard Access Code:   7866 (or 8080)
 - Tablet Master Super Code:    Wf@3125210946
 - Tablet Quick Unlock PIN:     78663786

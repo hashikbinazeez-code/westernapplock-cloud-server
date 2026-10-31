@@ -11,7 +11,7 @@ echo  [!] ZERO CONFIGURATION NEEDED:
 echo      1. Even if your Laptop restarts or Tablet changes Wi-Fi/SIM card,
 echo         this server automatically generates a free HTTPS link and sends it
 echo         to all your tablets over the internet automatically!
-echo      2. Your browser will open automatically to http://localhost:8080
+echo      2. Your browser will open automatically to https://is.gd/westernintapplock
 echo         (Access Code: 7866)
 echo.
 
@@ -33,8 +33,8 @@ if not exist "cloudflared.exe" (
     powershell -Command "Invoke-WebRequest -Uri 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile 'cloudflared.exe'"
 )
 
-echo [*] Opening Web Control Dashboard in your browser...
-start "" "http://localhost:8080"
+echo [*] Opening Live Cloud Portal in your browser...
+start "" "https://is.gd/westernintapplock"
 
 echo [*] Starting Cloud Relay Server + Automatic Tablet Sync...
 node server.js

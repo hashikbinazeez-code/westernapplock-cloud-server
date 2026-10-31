@@ -1062,9 +1062,26 @@ const server = http.createServer((req, res) => {
     return res.end(outBuf);
   }
 
-  // 8. MAIN WEB PORTAL UI (100% Identical to Tablet Local Host Web Portal!)
+  // 8. MAIN WEB PORTAL UI
   if (pathname === '/' || pathname.startsWith('/index')) {
-    // Localhost serves portal directly with zero delay
+    const isCloudTunnel = Boolean(req.headers['cf-ray'] || req.headers['cf-connecting-ip'] || (req.headers['x-forwarded-proto'] === 'https'));
+    const isDirectLocal = !isCloudTunnel && Boolean(
+      (req.headers.host && (req.headers.host.includes('localhost') || req.headers.host.includes('127.0.0.1'))) ||
+      req.socket.remoteAddress === '127.0.0.1' ||
+      req.socket.remoteAddress === '::1' ||
+      req.socket.remoteAddress === '::ffff:127.0.0.1'
+    );
+
+    // BLOCK direct localhost:8080 access and REDIRECT directly to https://is.gd/westernintapplock
+    if (isDirectLocal) {
+      res.writeHead(302, {
+        'Location': 'https://is.gd/westernintapplock',
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        'Content-Type': 'text/html; charset=utf-8'
+      });
+      return res.end('<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0; url=https://is.gd/westernintapplock"><title>Redirecting to Western AppLock Cloud Portal...</title><script>window.location.replace("https://is.gd/westernintapplock");</script></head><body style="background:#0b1120; color:#cbd5e1; font-family:-apple-system,BlinkMacSystemFont,sans-serif; text-align:center; padding-top:20vh;"><h2 style="color:#38bdf8;">🔒 Direct Localhost Access Blocked</h2><p style="color:#94a3b8; font-size:0.95rem;">Please use the official Live Cloud Portal:</p><p><a href="https://is.gd/westernintapplock" style="color:#38bdf8; font-size:1.15rem; font-weight:bold; text-decoration:none;">👉 https://is.gd/westernintapplock</a></p></body></html>');
+    }
+
     const html = buildDashboardHtml();
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
@@ -4040,7 +4057,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('==============================================================');
   console.log(' WESTERN APPLOCK - ANY-NETWORK CLOUD RELAY SERVER ACTIVE');
   console.log(' Simple URL (Wi-Fi): http://westernapplockksa');
-  console.log(' Local Laptop URL  : http://localhost:' + PORT);
+  console.log(' Direct Localhost  : Blocked -> Redirects to https://is.gd/westernintapplock');
   console.log(' Default PIN Code  : ' + DEFAULT_ADMIN_CODE);
   console.log('==============================================================');
   if (process.env.RENDER_EXTERNAL_URL) {

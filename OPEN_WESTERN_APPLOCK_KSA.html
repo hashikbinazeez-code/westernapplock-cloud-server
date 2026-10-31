@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Western AppLock KSA - Connecting...</title>
+  <meta http-equiv="refresh" content="0; url=https://is.gd/westernintapplock" />
+  <title>Western AppLock KSA - Live Cloud Portal</title>
   <style>
     body {
       margin: 0;
@@ -38,40 +39,18 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     h2 { margin: 0 0 8px; font-size: 1.15rem; color: #fff; }
     p { margin: 0; font-size: 0.85rem; color: #94a3b8; line-height: 1.4; }
+    a { color: #38bdf8; font-weight: bold; text-decoration: none; }
   </style>
 </head>
 <body>
   <div class="card">
     <div class="spinner"></div>
     <h2>Western AppLock KSA</h2>
-    <p id="statusText">Locating live Cloud Relay Server automatically...</p>
+    <p>Opening Live Cloud Portal...</p>
+    <p style="margin-top: 14px;"><a href="https://is.gd/westernintapplock">Click here if not redirected automatically</a></p>
   </div>
   <script>
-    (async () => {
-      // 1. Check if running locally on this laptop first
-      try {
-        const controller = new AbortController();
-        setTimeout(() => controller.abort(), 800);
-        const localResp = await fetch('http://localhost:8080/api/status', { signal: controller.signal, mode: 'no-cors' });
-        if (localResp) {
-          window.location.replace('http://localhost:8080');
-          return;
-        }
-      } catch (_) {}
-
-      // 2. Fetch latest auto-synced public HTTPS URL from ntfy.sh
-      try {
-        const res = await fetch('https://ntfy.sh/western_applock_sync_3125210946/raw?poll=1&since=all&_t=' + Date.now(), { cache: 'no-store' });
-        const text = await res.text();
-        const lines = text.trim().split('\n').map(s => s.trim()).filter(s => s.startsWith('https://'));
-        if (lines.length > 0) {
-          window.location.replace(lines[lines.length - 1]);
-          return;
-        }
-      } catch (_) {}
-
-      document.getElementById('statusText').textContent = 'Could not reach Cloud Server. Make sure START_CLOUD_SERVER.bat is running.';
-    })();
+    window.location.replace('https://is.gd/westernintapplock');
   </script>
 </body>
 </html>
