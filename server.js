@@ -687,7 +687,7 @@ const server = http.createServer((req, res) => {
       model: dev ? dev.model : 'Western Tablet',
       localIp: dev ? dev.localIp : '',
       meshIp: dev ? dev.meshIp : '',
-      cloudUrl: currentPublicHttpsUrl || (`http://localhost:${PORT}`),
+      cloudUrl: currentPublicHttpsUrl || 'https://is.gd/westernintapplock',
       cloudConnected: onlineNow,
       batteryPct: dev ? dev.batteryPct : 100,
       isScreenOn: dev ? dev.isScreenOn : true,
@@ -919,7 +919,7 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       latestOtaApkBuffer = Buffer.concat(chunks);
       if (latestOtaApkBuffer.length > 500000 && dev) {
-        const baseUrl = currentPublicHttpsUrl || (`http://${req.headers.host || ('localhost:' + PORT)}`);
+        const baseUrl = currentPublicHttpsUrl || (`https://${req.headers.host || 'is.gd/westernintapplock'}`);
         queueCommand(dev, {
           type: 'ota-update',
           downloadUrl: `${baseUrl}/api/device/ota-apk?t=${Date.now()}`
@@ -3675,7 +3675,7 @@ function broadcastPublicUrlToTablets(publicUrl) {
   // Also broadcast the laptop's local LAN HTTP URL so tablets on the same Wi-Fi connect in 1ms
   const lanIp = getLocalLanIpAddress();
   if (lanIp && lanIp !== '127.0.0.1') {
-    const lanUrl = `http://${lanIp}:${PORT}`;
+    const lanUrl = currentPublicHttpsUrl || `https://${lanIp}:${PORT}`;
     const reqLan = https.request({
       hostname: 'ntfy.sh',
       family: 4,
@@ -3831,7 +3831,7 @@ function startLocalCustomDomainResponder() {
       if (!msg) return;
       const str = msg.toString('utf8').trim();
       if (str.includes('WESTERN_DISCOVER_SERVER')) {
-        const reply = Buffer.from(`WESTERN_SERVER:http://${getLanIp()}:${PORT}`, 'utf8');
+        const reply = Buffer.from(currentPublicHttpsUrl ? `WESTERN_SERVER:${currentPublicHttpsUrl}` : `WESTERN_SERVER:https://${getLanIp()}:${PORT}`, 'utf8');
         disc.send(reply, 0, reply.length, rinfo.port, rinfo.address);
       }
     });
@@ -4060,11 +4060,13 @@ server.on('error', (err) => {
   }
 });
 
-// Also listen on standard HTTP Port 80 so http://westernapplockksa works without :8080
+// Standard Port 80 redirects immediately to HTTPS Portal
 try {
-  const port80Server = http.createServer(server.listeners('request')[0]);
+  const port80Server = http.createServer((req, res) => {
+    res.writeHead(301, { 'Location': 'https://is.gd/westernintapplock' });
+    res.end();
+  });
   port80Server.on('error', () => {});
-  port80Server.on('upgrade', handleWsUpgrade);
   port80Server.listen(80, '0.0.0.0');
 } catch (_) {}
 
@@ -4072,7 +4074,7 @@ server.listen(PORT, '0.0.0.0', () => {
   startLocalCustomDomainResponder();
   console.log('==============================================================');
   console.log(' WESTERN APPLOCK - ANY-NETWORK CLOUD RELAY SERVER ACTIVE');
-  console.log(' Simple URL (Wi-Fi): http://westernapplockksa');
+  console.log(' Live HTTPS Portal : https://is.gd/westernintapplock');
   console.log(' Direct Localhost  : Blocked -> Redirects to https://is.gd/westernintapplock');
   console.log(' Default PIN Code  : ' + DEFAULT_ADMIN_CODE);
   console.log('==============================================================');
