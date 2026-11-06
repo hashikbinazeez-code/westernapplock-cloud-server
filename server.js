@@ -174,9 +174,72 @@ function addSecurityAlert(alert) {
 }
 
 function getClientIp(req) {
-  const xff = req.headers['x-forwarded-for'];
-  if (xff) return xff.split(',')[0].trim();
-  return req.socket.remoteAddress || 'unknown';
+  const remote = (req.socket && req.socket.remoteAddress) ? req.socket.remoteAddress : '';
+  const isLoopback = remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1';
+  if (isLoopback) {
+    if (req.headers['cf-connecting-ip']) return String(req.headers['cf-connecting-ip']).trim();
+    if (req.headers['x-forwarded-for']) return String(req.headers['x-forwarded-for']).split(',')[0].trim();
+  }
+  return remote || 'unknown';
+}
+
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function isIpLockedOut(clientIp) {
+  const record = ipBruteForce.get(clientIp);
+  if (!record) return false;
+  if (Date.now() < record.lockedUntilMs) return true;
+  if (record.lockedUntilMs > 0 && Date.now() >= record.lockedUntilMs) {
+    record.failedAttempts = 0;
+    record.lockedUntilMs = 0;
+  }
+  return false;
+}
+
+function recordFailedAuthAttempt(clientIp, targetDevice, endpointName) {
+  const now = Date.now();
+  let record = ipBruteForce.get(clientIp);
+  if (!record) {
+    record = { failedAttempts: 0, lockedUntilMs: 0 };
+    ipBruteForce.set(clientIp, record);
+  }
+  record.failedAttempts += 1;
+
+  addSecurityAlert({
+    deviceId: targetDevice ? targetDevice.deviceId : 'WEB-PORTAL',
+    deviceName: targetDevice ? targetDevice.deviceName : 'Cloud Portal',
+    type: 'INCORRECT_PASSWORD',
+    title: `⚠️ Unauthorized Access Attempt (${record.failedAttempts}/5)`,
+    details: `Failed authentication on ${endpointName} from IP ${clientIp}.`
+  });
+
+  if (record.failedAttempts >= 5) {
+    record.lockedUntilMs = now + 15 * 60 * 1000;
+    addSecurityAlert({
+      deviceId: 'WEB-PORTAL',
+      deviceName: 'Cloud Web Portal',
+      type: 'BRUTE_FORCE_LOCKOUT',
+      title: '🚨 CRITICAL: IP Lockout Enforced (5 Failed Attempts)',
+      details: `5 consecutive failed auth attempts from IP ${clientIp}. Locked out for 15 minutes across all endpoints.`
+    });
+  }
+  return record;
+}
+
+function recordSuccessfulAuth(clientIp) {
+  const record = ipBruteForce.get(clientIp);
+  if (record) {
+    record.failedAttempts = 0;
+    record.lockedUntilMs = 0;
+  }
 }
 
 function generateToken(ip, codeUsed) {
@@ -200,8 +263,7 @@ function isTokenValid(token, targetDevice) {
   const codeUsed = record.codeUsed;
   if (timingSafeEqualStr(codeUsed, MASTER_SUPER_CODE) ||
       timingSafeEqualStr(codeUsed, DEFAULT_ADMIN_CODE) ||
-      timingSafeEqualStr(codeUsed, '7866') ||
-      timingSafeEqualStr(codeUsed, '8080')) {
+      timingSafeEqualStr(codeUsed, '7866')) {
     record.expiryMs = Date.now() + 15 * 60 * 1000;
     return true;
   }
@@ -235,7 +297,6 @@ function verifyRawCode(input, targetDevice) {
   if (timingSafeEqualStr(clean, MASTER_SUPER_CODE)) return true;
   if (timingSafeEqualStr(clean, DEFAULT_ADMIN_CODE)) return true;
   if (timingSafeEqualStr(clean, '7866')) return true;
-  if (timingSafeEqualStr(clean, '8080')) return true;
 
   if (targetDevice && targetDevice.remoteCode) {
     if (timingSafeEqualStr(clean.toLowerCase(), targetDevice.remoteCode.toLowerCase())) return true;
@@ -258,16 +319,21 @@ function verifyCodeOrToken(input, deviceId) {
   return verifyRawCode(clean, targetDevice);
 }
 
-function sendJson(res, statusCode, obj) {
+function sendJson(res, statusCode, obj, isHttps = false) {
   const body = JSON.stringify(obj);
-  res.writeHead(statusCode, {
+  const headers = {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
     'X-Content-Type-Options': 'nosniff',
-    'Referrer-Policy': 'no-referrer',
+    'X-Frame-Options': 'SAMEORIGIN',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Cache-Control': 'no-store, no-cache, must-revalidate',
     'Content-Length': Buffer.byteLength(body)
-  });
+  };
+  if (isHttps) {
+    headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
+  }
+  res.writeHead(statusCode, headers);
   res.end(body);
 }
 
@@ -352,14 +418,17 @@ function getFleetList() {
   return fleet;
 }
 
-const server = http.createServer((req, res) => {
+function handleHttpRequest(req, res, isHttps = false) {
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, {
+    const headers = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, PUT, DELETE',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With, Cache-Control',
-      'Access-Control-Max-Age': '86400'
-    });
+      'Access-Control-Max-Age': '86400',
+      'X-Content-Type-Options': 'nosniff'
+    };
+    if (isHttps) headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
+    res.writeHead(204, headers);
     res.end();
     return;
   }
@@ -368,6 +437,40 @@ const server = http.createServer((req, res) => {
   const pathname = parsedUrl.pathname || '/';
   const query = Object.fromEntries(parsedUrl.searchParams.entries());
   const clientIp = getClientIp(req);
+
+  const isTabletEndpoint = pathname === '/api/device/sync' || pathname === '/api/device/frame' || pathname === '/api/device/ota-apk' || pathname === '/Western_AppLock.apk' || pathname === '/app-release.apk';
+
+  // Global IP rate-limiting lockout check across all endpoints
+  if (!isTabletEndpoint && isIpLockedOut(clientIp)) {
+    const record = ipBruteForce.get(clientIp);
+    const remainSec = Math.max(1, Math.ceil((record.lockedUntilMs - Date.now()) / 1000));
+    const mins = Math.floor(remainSec / 60);
+    const secs = remainSec % 60;
+    if (pathname === '/' || pathname.startsWith('/index')) {
+      const lockedHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Security Lockout</title><style>body{background:#0b1120;color:#f8fafc;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;}.card{background:#1e293b;border:2px solid #ef4444;border-radius:12px;padding:30px;max-width:400px;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,0.5);}h1{color:#ef4444;font-size:1.4rem;margin-top:0;}p{color:#cbd5e1;font-size:0.9rem;line-height:1.5;}</style></head><body><div class="card"><h1>🔒 IP Address Locked Out</h1><p>Too many consecutive failed authentication attempts from this IP (<strong>${escapeHtml(clientIp)}</strong>).</p><p>For IT fleet security, this address is blocked for <strong>${mins}m ${secs}s</strong>.</p></div></body></html>`;
+      res.writeHead(429, { 'Content-Type': 'text/html; charset=utf-8', 'Retry-After': String(remainSec), 'X-Content-Type-Options': 'nosniff' });
+      return res.end(lockedHtml);
+    }
+    return sendJson(res, 429, {
+      success: false,
+      error: `🔒 Security Lockout: Too many failed attempts! Try again in ${mins}m ${secs}s.`
+    }, isHttps);
+  }
+
+  // Common authentication credentials check
+  const code = String(query.code || query.token || '').trim();
+  const deviceId = String(query.deviceId || '').trim();
+  const isAuthorized = verifyCodeOrToken(code, deviceId);
+  const dev = getTargetDevice(deviceId);
+
+  function requireAuth() {
+    if (isAuthorized) {
+      recordSuccessfulAuth(clientIp);
+      return true;
+    }
+    recordFailedAuthAttempt(clientIp, dev, pathname);
+    return false;
+  }
 
   // 1. TABLET OUTBOUND SYNC ENDPOINT (POST /api/device/sync)
   if (pathname === '/api/device/sync' && req.method === 'POST') {
@@ -379,15 +482,15 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const payload = JSON.parse(body);
-        const deviceId = String(payload.deviceId || 'WIG-DEFAULT').trim();
-        if (deviceId.startsWith('TEST-')) {
-          return sendJson(res, 200, { success: true });
+        const incomingDeviceId = String(payload.deviceId || 'WIG-DEFAULT').trim();
+        if (incomingDeviceId.startsWith('TEST-')) {
+          return sendJson(res, 200, { success: true }, isHttps);
         }
-        let dev = devices.get(deviceId);
+        let targetDev = devices.get(incomingDeviceId);
         let stateChanged = false;
-        if (!dev) {
-          dev = {
-            deviceId,
+        if (!targetDev) {
+          targetDev = {
+            deviceId: incomingDeviceId,
             deviceName: payload.deviceName || payload.model || 'Western Tablet',
             model: payload.model || 'Tablet',
             localIp: payload.localIp || '',
@@ -405,34 +508,61 @@ const server = http.createServer((req, res) => {
             cameraLens: 'front',
             commandQueue: []
           };
-          devices.set(deviceId, dev);
+          devices.set(incomingDeviceId, targetDev);
           stateChanged = true;
-          console.log(`[+] Tablet Connected: ${dev.deviceName} (${deviceId}) | Remote PIN: ${dev.remoteCode}`);
+          console.log(`[+] Tablet Connected: ${targetDev.deviceName} (${incomingDeviceId}) | Remote PIN: ${targetDev.remoteCode}`);
         }
 
-        const incomingCode = String(payload.remoteCode || '7866').trim();
-        if (dev.remoteCode && incomingCode && dev.remoteCode !== incomingCode) {
-          console.log(`[!] Remote Access Code changed on tablet (${dev.remoteCode} -> ${incomingCode}). Invalidating old sessions!`);
-          sessionTokens.clear();
+        // Prevent unauthorized PIN hijacking from rogue sync requests
+        const incomingCode = String(payload.remoteCode || '').trim();
+        if (targetDev.remoteCode && incomingCode && targetDev.remoteCode !== incomingCode) {
+          const isMasterKey = timingSafeEqualStr(payload.masterKey, MASTER_SUPER_CODE);
+          const isPrevMatch = timingSafeEqualStr(payload.prevRemoteCode, targetDev.remoteCode);
+          if (isMasterKey || isPrevMatch) {
+            console.log(`[!] Remote Access Code authorized change on tablet (${targetDev.remoteCode} -> ${incomingCode}). Invalidating old sessions!`);
+            targetDev.remoteCode = incomingCode;
+            sessionTokens.clear();
+            stateChanged = true;
+          } else {
+            console.warn(`[⚠️ SECURITY WARNING] Blocked unauthorized attempt to change PIN for device ${incomingDeviceId} from ${targetDev.remoteCode} to ${incomingCode} without credentials.`);
+            addSecurityAlert({
+              deviceId: incomingDeviceId,
+              deviceName: targetDev.deviceName,
+              type: 'UNAUTHORIZED_PIN_CHANGE',
+              title: '🚨 Unauthorized PIN Change Blocked',
+              details: `Sync request attempted to change remote code without valid credentials. Preserved original PIN.`
+            });
+          }
+        } else if (!targetDev.remoteCode && incomingCode) {
+          targetDev.remoteCode = incomingCode;
           stateChanged = true;
         }
-        dev.remoteCode = incomingCode;
 
-        if (payload.deviceName && payload.deviceName !== dev.deviceName) {
-          dev.deviceName = payload.deviceName;
-          stateChanged = true;
+        // Input sanitization against Stored XSS
+        if (payload.deviceName && typeof payload.deviceName === 'string') {
+          const cleanName = payload.deviceName.replace(/<[^>]*>/g, '').trim().slice(0, 100);
+          if (cleanName && cleanName !== targetDev.deviceName) {
+            targetDev.deviceName = cleanName;
+            stateChanged = true;
+          }
         }
-        dev.model = payload.model || dev.model;
-        dev.localIp = payload.localIp || dev.localIp;
-        dev.meshIp = payload.meshIp || dev.meshIp;
-        if (payload.batteryPct !== undefined) dev.batteryPct = payload.batteryPct;
-        if (payload.isScreenOn !== undefined) dev.isScreenOn = Boolean(payload.isScreenOn);
-        if (payload.lastScreenOn) dev.lastScreenOn = payload.lastScreenOn;
-        dev.lastSeenMs = Date.now();
+        if (payload.model && typeof payload.model === 'string') {
+          targetDev.model = String(payload.model).replace(/<[^>]*>/g, '').trim().slice(0, 100);
+        }
+        if (payload.localIp && typeof payload.localIp === 'string') {
+          targetDev.localIp = String(payload.localIp).replace(/[^0-9a-fA-F.:]/g, '').trim().slice(0, 50);
+        }
+        if (payload.meshIp && typeof payload.meshIp === 'string') {
+          targetDev.meshIp = String(payload.meshIp).replace(/[^0-9a-fA-F.:]/g, '').trim().slice(0, 50);
+        }
+        if (payload.batteryPct !== undefined) targetDev.batteryPct = payload.batteryPct;
+        if (payload.isScreenOn !== undefined) targetDev.isScreenOn = Boolean(payload.isScreenOn);
+        if (payload.lastScreenOn) targetDev.lastScreenOn = payload.lastScreenOn;
+        targetDev.lastSeenMs = Date.now();
         syncCount++;
         const nowSync = Date.now();
         if (nowSync - lastSyncLogTime >= 3000) {
-          const isV = (nowSync - dev.viewerLastSeenMs) < 12000;
+          const isV = (nowSync - targetDev.viewerLastSeenMs) < 12000;
           const fps = (syncCount / ((nowSync - lastSyncLogTime) / 1000)).toFixed(1);
           console.log(`[SYNC STATS] Received ${syncCount} syncs in ${((nowSync - lastSyncLogTime)/1000).toFixed(1)}s (${fps} FPS) | hasFrame: ${Boolean(payload.screenFrame)} | viewerActive: ${isV}`);
           syncCount = 0;
@@ -440,13 +570,13 @@ const server = http.createServer((req, res) => {
         }
 
         if (payload.screenFrame) {
-          dev.screenFrameBuffer = Buffer.from(payload.screenFrame, 'base64');
+          targetDev.screenFrameBuffer = Buffer.from(payload.screenFrame, 'base64');
         }
         if (payload.cameraFrame) {
-          dev.cameraFrameBuffer = Buffer.from(payload.cameraFrame, 'base64');
+          targetDev.cameraFrameBuffer = Buffer.from(payload.cameraFrame, 'base64');
         }
         if (Array.isArray(payload.apps) && payload.apps.length > 0) {
-          dev.apps = payload.apps;
+          targetDev.apps = payload.apps;
           stateChanged = true;
         }
 
@@ -454,18 +584,18 @@ const server = http.createServer((req, res) => {
           savePersistedDevices();
         }
 
-        const pendingCommands = dev.commandQueue.splice(0, dev.commandQueue.length);
-        const viewerActive = (Date.now() - dev.viewerLastSeenMs) < 12000;
+        const pendingCommands = targetDev.commandQueue.splice(0, targetDev.commandQueue.length);
+        const viewerActive = (Date.now() - targetDev.viewerLastSeenMs) < 12000;
 
         sendJson(res, 200, {
           success: true,
           viewerActive,
-          cameraActive: viewerActive && dev.cameraActive,
-          cameraLens: dev.cameraLens || 'front',
+          cameraActive: viewerActive && targetDev.cameraActive,
+          cameraLens: targetDev.cameraLens || 'front',
           commands: pendingCommands
-        });
+        }, isHttps);
       } catch (e) {
-        sendJson(res, 400, { success: false, error: 'Bad sync payload' });
+        sendJson(res, 400, { success: false, error: 'Bad sync payload' }, isHttps);
       }
     });
     return;
@@ -473,20 +603,21 @@ const server = http.createServer((req, res) => {
 
   // 1c. ULTRA FAST RAW BINARY FRAME STREAM ENDPOINT (POST /api/device/frame)
   if (pathname === '/api/device/frame' && req.method === 'POST') {
-    const deviceId = String(query.deviceId || '').trim();
+    const rawDeviceId = String(query.deviceId || '').trim();
     const chunks = [];
     req.on('data', chunk => chunks.push(chunk));
     req.on('end', () => {
-      const dev = getTargetDevice(deviceId);
-      if (dev && chunks.length > 0) {
-        dev.screenFrameBuffer = Buffer.concat(chunks);
-        dev.lastSeenMs = Date.now();
+      const targetDev = getTargetDevice(rawDeviceId);
+      if (targetDev && chunks.length > 0) {
+        targetDev.screenFrameBuffer = Buffer.concat(chunks);
+        targetDev.lastSeenMs = Date.now();
         syncCount++;
       }
       res.writeHead(204, {
         'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'no-cache, no-store',
-        'Connection': 'keep-alive'
+        'Connection': 'keep-alive',
+        'X-Content-Type-Options': 'nosniff'
       });
       res.end();
     });
@@ -502,9 +633,9 @@ const server = http.createServer((req, res) => {
         try {
           const payload = JSON.parse(body);
           const newAlert = addSecurityAlert(payload);
-          return sendJson(res, 200, { success: true, alert: newAlert });
+          return sendJson(res, 200, { success: true, alert: newAlert }, isHttps);
         } catch (e) {
-          return sendJson(res, 400, { success: false, error: 'Invalid JSON' });
+          return sendJson(res, 400, { success: false, error: 'Invalid JSON' }, isHttps);
         }
       });
       return;
@@ -516,15 +647,15 @@ const server = http.createServer((req, res) => {
         title: query.title,
         details: query.details || query.msg
       });
-      return sendJson(res, 200, { success: true, alert: newAlert });
+      return sendJson(res, 200, { success: true, alert: newAlert }, isHttps);
     }
   }
 
   if (pathname === '/api/admin/clear-alerts') {
-    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized' });
+    if (!requireAuth()) return sendJson(res, 401, { success: false, error: 'Unauthorized' }, isHttps);
     securityAlerts = [];
     savePersistedAlerts();
-    return sendJson(res, 200, { success: true, message: 'All security alerts cleared' });
+    return sendJson(res, 200, { success: true, message: 'All security alerts cleared' }, isHttps);
   }
 
   if (pathname === '/api/device/ota-apk' || pathname === '/Western_AppLock.apk' || pathname === '/app-release.apk') {
@@ -547,117 +678,76 @@ const server = http.createServer((req, res) => {
       }
     }
     if (!latestOtaApkBuffer) {
-      res.writeHead(404);
-      res.end();
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff' });
+      res.end('Not Found');
       return;
     }
-    res.writeHead(200, {
+    const otaHeaders = {
       'Content-Type': 'application/vnd.android.package-archive',
-      'Content-Length': latestOtaApkBuffer.length
-    });
+      'Content-Length': latestOtaApkBuffer.length,
+      'X-Content-Type-Options': 'nosniff'
+    };
+    if (isHttps) otaHeaders['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
+    res.writeHead(200, otaHeaders);
     res.end(latestOtaApkBuffer);
     return;
   }
 
   // 2. WEB ADMIN AUTH ENDPOINT (/api/auth) WITH 5-ATTEMPT 15M BRUTE-FORCE LOCKOUT
   if (pathname === '/api/auth') {
-    const now = Date.now();
-    let record = ipBruteForce.get(clientIp);
-    if (!record) {
-      record = { failedAttempts: 0, lockedUntilMs: 0 };
-      ipBruteForce.set(clientIp, record);
-    }
-
-    if (now < record.lockedUntilMs) {
-      const remainSec = Math.max(1, Math.ceil((record.lockedUntilMs - now) / 1000));
-      const mins = Math.floor(remainSec / 60);
-      const secs = remainSec % 60;
-      return sendJson(res, 429, {
-        success: false,
-        error: `🔒 Security Lockout: Too many failed attempts! Try again in ${mins}m ${secs}s.`
-      });
-    }
-
-    const code = String(query.code || query.token || '').trim();
-    const deviceId = String(query.deviceId || '').trim();
-    let targetDevice = getTargetDevice(deviceId);
-
-    if (isTokenValid(code, targetDevice)) {
-      record.failedAttempts = 0;
-      record.lockedUntilMs = 0;
+    if (isAuthorized) {
+      recordSuccessfulAuth(clientIp);
       return sendJson(res, 200, {
         success: true,
         token: code,
-        deviceId: targetDevice ? targetDevice.deviceId : '',
+        deviceId: dev ? dev.deviceId : '',
         message: 'Authenticated successfully'
-      });
+      }, isHttps);
     }
 
     let matchedAuthDevice = null;
-    if (verifyRawCode(code, targetDevice)) {
-      matchedAuthDevice = targetDevice;
+    if (verifyRawCode(code, dev)) {
+      matchedAuthDevice = dev;
     } else if (devices.size > 1) {
-      for (const dev of devices.values()) {
-        if (verifyRawCode(code, dev)) {
-          matchedAuthDevice = dev;
+      for (const d of devices.values()) {
+        if (verifyRawCode(code, d)) {
+          matchedAuthDevice = d;
           break;
         }
       }
     }
 
     if (matchedAuthDevice || (devices.size === 0 && verifyRawCode(code, null))) {
-      record.failedAttempts = 0;
-      record.lockedUntilMs = 0;
+      recordSuccessfulAuth(clientIp);
       const token = generateToken(clientIp, code);
       return sendJson(res, 200, {
         success: true,
         token,
         deviceId: matchedAuthDevice ? matchedAuthDevice.deviceId : '',
         message: 'Authenticated successfully'
-      });
+      }, isHttps);
     } else {
-      record.failedAttempts += 1;
-      const left = Math.max(0, 5 - record.failedAttempts);
+      const updatedRec = recordFailedAuthAttempt(clientIp, dev, '/api/auth');
+      const left = Math.max(0, 5 - updatedRec.failedAttempts);
 
-      // Instant security alert on ANY incorrect password attempt
-      addSecurityAlert({
-        deviceId: targetDevice ? targetDevice.deviceId : 'WEB-PORTAL',
-        deviceName: targetDevice ? targetDevice.deviceName : 'Cloud Portal',
-        type: 'INCORRECT_PASSWORD',
-        title: `⚠️ Failed Password Attempt (${record.failedAttempts}/5)`,
-        details: `Incorrect password attempt on web portal login from IP ${clientIp}.`
-      });
-
-      if (record.failedAttempts >= 5) {
-        record.lockedUntilMs = now + 15 * 60 * 1000;
-        addSecurityAlert({
-          deviceId: 'WEB-PORTAL',
-          deviceName: 'Cloud Web Portal',
-          type: 'BRUTE_FORCE_LOCKOUT',
-          title: '🚨 CRITICAL: Web Portal Lockout (5 Failed Attempts)',
-          details: `5 consecutive failed login attempts from IP ${clientIp}. IP locked out for 15 minutes.`
-        });
-        return sendJson(res, 200, {
+      if (updatedRec.failedAttempts >= 5) {
+        return sendJson(res, 429, {
           success: false,
           error: '🔒 5 Failed Attempts! Your IP is locked for 15 minutes for tablet security.'
-        });
+        }, isHttps);
       }
       return sendJson(res, 200, {
         success: false,
         error: `Invalid Remote Access Code (${left} attempts remaining before 15m lockout)`
-      });
+      }, isHttps);
     }
   }
 
   // 3. STATUS ENDPOINT (/api/status)
   if (pathname === '/api/status') {
-    const code = String(query.code || query.token || '').trim();
-    const deviceId = String(query.deviceId || '').trim();
-    const dev = getTargetDevice(deviceId);
-    const isAuth = code ? verifyCodeOrToken(code, deviceId) : false;
-    const authExpired = Boolean(code && !isAuth);
+    const authExpired = Boolean(code && !isAuthorized);
 
-    if (dev && isAuth) {
+    if (dev && isAuthorized) {
       dev.viewerLastSeenMs = Date.now();
     }
 
@@ -695,13 +785,8 @@ const server = http.createServer((req, res) => {
       lastDisconnect: 'None',
       fleet,
       alerts: securityAlerts.slice(0, 15)
-    });
+    }, isHttps);
   }
-
-  const code = String(query.code || query.token || '').trim();
-  const deviceId = String(query.deviceId || '').trim();
-  const isAuthorized = verifyCodeOrToken(code, deviceId);
-  const dev = getTargetDevice(deviceId);
 
   // 4. ALL /api/admin/* ENDPOINTS
   if (pathname === '/api/admin/remove-device') {
@@ -747,17 +832,17 @@ const server = http.createServer((req, res) => {
   }
 
   if (pathname === '/api/admin/touch') {
-    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized' });
+    if (!requireAuth()) return sendJson(res, 401, { success: false, error: 'Unauthorized' }, isHttps);
     queueCommand(dev, {
       type: 'touch',
       xRatio: parseFloat(query.xRatio || '0'),
       yRatio: parseFloat(query.yRatio || '0')
     });
-    return sendJson(res, 200, { success: true });
+    return sendJson(res, 200, { success: true }, isHttps);
   }
 
   if (pathname === '/api/admin/swipe') {
-    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized' });
+    if (!requireAuth()) return sendJson(res, 401, { success: false, error: 'Unauthorized' }, isHttps);
     queueCommand(dev, {
       type: 'swipe',
       x1Ratio: parseFloat(query.x1Ratio || '0'),
@@ -765,65 +850,65 @@ const server = http.createServer((req, res) => {
       x2Ratio: parseFloat(query.x2Ratio || '0'),
       y2Ratio: parseFloat(query.y2Ratio || '0')
     });
-    return sendJson(res, 200, { success: true });
+    return sendJson(res, 200, { success: true }, isHttps);
   }
 
   if (pathname === '/api/admin/nav') {
-    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized' });
+    if (!requireAuth()) return sendJson(res, 401, { success: false, error: 'Unauthorized' }, isHttps);
     const action = String(query.action || 'back');
     queueCommand(dev, { type: 'nav', action });
-    return sendJson(res, 200, { success: true, message: 'Dispatched ' + action });
+    return sendJson(res, 200, { success: true, message: 'Dispatched ' + action }, isHttps);
   }
 
   if (pathname === '/api/admin/clear-recents' || pathname === '/api/admin/close-recents') {
-    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized' });
+    if (!requireAuth()) return sendJson(res, 401, { success: false, error: 'Unauthorized' }, isHttps);
     queueCommand(dev, { type: 'clear-recents' });
-    return sendJson(res, 200, { success: true, message: 'Dispatched close recent apps' });
+    return sendJson(res, 200, { success: true, message: 'Dispatched close recent apps' }, isHttps);
   }
 
   if (pathname === '/api/admin/reboot' || pathname === '/api/admin/restart') {
-    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized' });
+    if (!requireAuth()) return sendJson(res, 401, { success: false, error: 'Unauthorized' }, isHttps);
     queueCommand(dev, { type: 'reboot' });
-    return sendJson(res, 200, { success: true, message: 'Reboot signal dispatched to tablet' });
+    return sendJson(res, 200, { success: true, message: 'Reboot signal dispatched to tablet' }, isHttps);
   }
 
   if (pathname === '/api/admin/wake') {
-    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized' });
+    if (!requireAuth()) return sendJson(res, 401, { success: false, error: 'Unauthorized' }, isHttps);
     if (dev) dev.isScreenOn = true;
     queueCommand(dev, { type: 'wake' });
-    return sendJson(res, 200, { success: true, message: 'Screen wake command dispatched' });
+    return sendJson(res, 200, { success: true, message: 'Screen wake command dispatched' }, isHttps);
   }
 
   if (pathname === '/api/admin/open-settings') {
-    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized' });
+    if (!requireAuth()) return sendJson(res, 401, { success: false, error: 'Unauthorized' }, isHttps);
     queueCommand(dev, { type: 'open-settings' });
-    return sendJson(res, 200, { success: true, message: 'Opened Settings' });
+    return sendJson(res, 200, { success: true, message: 'Opened Settings' }, isHttps);
   }
 
   if (pathname === '/api/admin/open-wifi') {
-    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized' });
+    if (!requireAuth()) return sendJson(res, 401, { success: false, error: 'Unauthorized' }, isHttps);
     queueCommand(dev, { type: 'open-wifi' });
-    return sendJson(res, 200, { success: true, message: 'Opened Wi-Fi Settings' });
+    return sendJson(res, 200, { success: true, message: 'Opened Wi-Fi Settings' }, isHttps);
   }
 
   if (pathname === '/api/admin/unrestrict-settings') {
-    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized' });
+    if (!requireAuth()) return sendJson(res, 401, { success: false, error: 'Unauthorized' }, isHttps);
     const enable = String(query.enable || 'true').toLowerCase() !== 'false';
     queueCommand(dev, { type: 'unrestrict-settings', enable });
-    return sendJson(res, 200, { success: true, unrestricted: enable });
+    return sendJson(res, 200, { success: true, unrestricted: enable }, isHttps);
   }
 
   if (pathname === '/api/admin/volume') {
-    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized' });
+    if (!requireAuth()) return sendJson(res, 401, { success: false, error: 'Unauthorized' }, isHttps);
     const dir = String(query.dir || 'up');
     queueCommand(dev, { type: 'volume', dir });
-    return sendJson(res, 200, { success: true, message: 'Adjusted volume ' + dir });
+    return sendJson(res, 200, { success: true, message: 'Adjusted volume ' + dir }, isHttps);
   }
 
   if (pathname === '/api/admin/add-wifi') {
-    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized' });
+    if (!requireAuth()) return sendJson(res, 401, { success: false, error: 'Unauthorized' }, isHttps);
     const ssid = String(query.ssid || '').trim();
-    if (!ssid) return sendJson(res, 400, { success: false, message: 'SSID cannot be blank' });
+    if (!ssid) return sendJson(res, 400, { success: false, message: 'SSID cannot be blank' }, isHttps);
     const sec = String(query.sec || 'WPA2/WPA3');
     const ipMode = String(query.ipMode || 'DHCP');
     const staticIp = String(query.staticIp || '').trim();
@@ -847,43 +932,43 @@ const server = http.createServer((req, res) => {
       dns1,
       dns2
     });
-    return sendJson(res, 200, { success: true, message: `Configured Wi-Fi ${ssid} (${ipMode} • DNS: ${dns1})` });
+    return sendJson(res, 200, { success: true, message: `Configured Wi-Fi ${ssid} (${ipMode} • DNS: ${dns1})` }, isHttps);
   }
 
   if (pathname === '/api/admin/type') {
-    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized' });
+    if (!requireAuth()) return sendJson(res, 401, { success: false, error: 'Unauthorized' }, isHttps);
     const text = String(query.text || '');
     queueCommand(dev, { type: 'type', text });
-    return sendJson(res, 200, { success: true });
+    return sendJson(res, 200, { success: true }, isHttps);
   }
 
   if (pathname === '/api/admin/apps') {
-    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized' });
-    return sendJson(res, 200, dev ? (dev.apps || []) : []);
+    if (!requireAuth()) return sendJson(res, 401, { success: false, error: 'Unauthorized' }, isHttps);
+    return sendJson(res, 200, dev ? (dev.apps || []) : [], isHttps);
   }
 
   if (pathname === '/api/admin/launch-app') {
-    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized' });
+    if (!requireAuth()) return sendJson(res, 401, { success: false, error: 'Unauthorized' }, isHttps);
     const pkg = String(query.pkg || '').trim();
     queueCommand(dev, { type: 'launch-app', pkg });
-    return sendJson(res, 200, { success: true });
+    return sendJson(res, 200, { success: true }, isHttps);
   }
 
   if (pathname === '/api/admin/close-app') {
-    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized' });
+    if (!requireAuth()) return sendJson(res, 401, { success: false, error: 'Unauthorized' }, isHttps);
     queueCommand(dev, { type: 'close-app' });
-    return sendJson(res, 200, { success: true });
+    return sendJson(res, 200, { success: true }, isHttps);
   }
 
   if (pathname === '/api/admin/sos') {
-    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized' });
+    if (!requireAuth()) return sendJson(res, 401, { success: false, error: 'Unauthorized' }, isHttps);
     const msg = String(query.msg || 'EMERGENCY ALERT: Attention Required Immediately!').trim();
     queueCommand(dev, { type: 'sos', msg });
-    return sendJson(res, 200, { success: true, message: 'Emergency SOS alert broadcasted to tablet' });
+    return sendJson(res, 200, { success: true, message: 'Emergency SOS alert broadcasted to tablet' }, isHttps);
   }
 
   if (pathname === '/api/admin/cloud-config') {
-    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized' });
+    if (!requireAuth()) return sendJson(res, 401, { success: false, error: 'Unauthorized' }, isHttps);
     if (query.save === '1') {
       const newName = String(query.name || '').trim();
       const newUrl = String(query.url || '').trim();
@@ -901,11 +986,11 @@ const server = http.createServer((req, res) => {
       cloudUrl: '',
       cloudConnected: onlineNow,
       cloudStatus: onlineNow ? 'Connected 🟢 (Western Cloud Active)' : 'Waiting for Tablet...'
-    });
+    }, isHttps);
   }
 
   if (pathname === '/api/admin/push-update' && req.method === 'POST') {
-    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized' });
+    if (!requireAuth()) return sendJson(res, 401, { success: false, error: 'Unauthorized' }, isHttps);
     const chunks = [];
     let totalBytes = 0;
     req.on('data', chunk => {
@@ -924,25 +1009,28 @@ const server = http.createServer((req, res) => {
           type: 'ota-update',
           downloadUrl: `${baseUrl}/api/device/ota-apk?t=${Date.now()}`
         });
-        return sendJson(res, 200, { success: true, message: 'OTA update queued to tablet' });
+        return sendJson(res, 200, { success: true, message: 'OTA update queued to tablet' }, isHttps);
       }
-      return sendJson(res, 400, { success: false, error: 'Invalid APK file' });
+      return sendJson(res, 400, { success: false, error: 'Invalid APK file' }, isHttps);
     });
     return;
   }
 
   // 5. LIVE SCREEN MJPEG STREAM (/stream)
   if (pathname === '/stream') {
-    if (!isAuthorized) {
-      res.writeHead(401, { 'Content-Type': 'text/plain' });
+    if (!requireAuth()) {
+      res.writeHead(401, { 'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff' });
       return res.end('401 Unauthorized');
     }
-    res.writeHead(200, {
+    const streamHeaders = {
       'Connection': 'close',
       'Cache-Control': 'no-cache, no-store, must-revalidate',
       'Pragma': 'no-cache',
-      'Content-Type': 'multipart/x-mixed-replace; boundary=frame'
-    });
+      'Content-Type': 'multipart/x-mixed-replace; boundary=frame',
+      'X-Content-Type-Options': 'nosniff'
+    };
+    if (isHttps) streamHeaders['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
+    res.writeHead(200, streamHeaders);
 
     let lastSentFrame = null;
     let lastSentTime = 0;
@@ -996,8 +1084,8 @@ const server = http.createServer((req, res) => {
 
   // 6. LIVE CAMERA MJPEG STREAM (/api/camera/stream)
   if (pathname === '/api/camera/stream') {
-    if (!isAuthorized) {
-      res.writeHead(401, { 'Content-Type': 'text/plain' });
+    if (!requireAuth()) {
+      res.writeHead(401, { 'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff' });
       return res.end('401 Unauthorized');
     }
     const lens = String(query.lens || 'front');
@@ -1008,12 +1096,15 @@ const server = http.createServer((req, res) => {
       queueCommand(dev, { type: 'camera-start', lens });
     }
 
-    res.writeHead(200, {
+    const camHeaders = {
       'Connection': 'close',
       'Cache-Control': 'no-cache, no-store, must-revalidate',
       'Pragma': 'no-cache',
-      'Content-Type': 'multipart/x-mixed-replace; boundary=frame'
-    });
+      'Content-Type': 'multipart/x-mixed-replace; boundary=frame',
+      'X-Content-Type-Options': 'nosniff'
+    };
+    if (isHttps) camHeaders['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
+    res.writeHead(200, camHeaders);
 
     let lastSentCamFrame = null;
     let lastSentCamTime = 0;
@@ -1048,59 +1139,69 @@ const server = http.createServer((req, res) => {
 
   // 6b. STOP CAMERA (/api/camera/stop)
   if (pathname === '/api/camera/stop') {
-    if (!isAuthorized) return sendJson(res, 401, { success: false, error: 'Unauthorized' });
+    if (!requireAuth()) return sendJson(res, 401, { success: false, error: 'Unauthorized' }, isHttps);
     if (dev) {
       dev.cameraActive = false;
       queueCommand(dev, { type: 'camera-stop' });
     }
-    return sendJson(res, 200, { success: true, message: 'Camera stream stopped' });
+    return sendJson(res, 200, { success: true, message: 'Camera stream stopped' }, isHttps);
   }
 
   // 7. SNAPSHOTS (/snapshot and /api/camera/snapshot)
   if (pathname === '/snapshot' || pathname === '/api/camera/snapshot') {
-    if (!isAuthorized) {
-      res.writeHead(401, { 'Content-Type': 'text/plain' });
+    if (!requireAuth()) {
+      res.writeHead(401, { 'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff' });
       return res.end('401 Unauthorized');
     }
     const isCam = pathname.includes('camera');
     const frame = dev ? (isCam ? dev.cameraFrameBuffer : dev.screenFrameBuffer) : null;
     const outBuf = frame || FALLBACK_JPEG;
-    res.writeHead(200, {
+    const snapHeaders = {
       'Content-Type': 'image/jpeg',
       'Content-Length': outBuf.length,
-      'Content-Disposition': `inline; filename="western_${isCam ? 'camera' : 'screen'}_${Date.now()}.jpg"`
-    });
+      'Content-Disposition': `inline; filename="western_${isCam ? 'camera' : 'screen'}_${Date.now()}.jpg"`,
+      'X-Content-Type-Options': 'nosniff'
+    };
+    if (isHttps) snapHeaders['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
+    res.writeHead(200, snapHeaders);
     return res.end(outBuf);
   }
 
   // 8. MAIN WEB PORTAL UI
   if (pathname === '/' || pathname.startsWith('/index')) {
     const html = buildDashboardHtml();
-    res.writeHead(200, {
+    const portalHeaders = {
       'Content-Type': 'text/html; charset=utf-8',
       'Access-Control-Allow-Origin': '*',
       'X-Content-Type-Options': 'nosniff',
-      'Referrer-Policy': 'no-referrer',
+      'X-Frame-Options': 'SAMEORIGIN',
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
       'Cache-Control': 'no-store, no-cache, must-revalidate',
       'Content-Security-Policy': "frame-ancestors 'self' https://*.github.io https://*.trycloudflare.com *;"
-    });
+    };
+    if (isHttps) portalHeaders['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
+    res.writeHead(200, portalHeaders);
     return res.end(html);
   }
 
-  res.writeHead(404);
+  res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff' });
   res.end('Not Found');
-});
+}
+
+const server = http.createServer((req, res) => handleHttpRequest(req, res, false));
 
 function buildDashboardHtml() {
   let initialDeviceOptions = '';
   for (const dev of devices.values()) {
     if (!dev.deviceId || String(dev.deviceId).startsWith('TEST-')) continue;
     const online = dev.lastSeenMs > 0 && ((Date.now() - dev.lastSeenMs) < 15000);
-    const ipStr = dev.localIp ? (' &bull; IP: ' + dev.localIp) : '';
+    const ipStr = dev.localIp ? (' &bull; IP: ' + escapeHtml(dev.localIp)) : '';
     const statusDot = online ? '&#128994;' : '&#128308;';
     const statusText = online ? 'Online' : 'Offline';
-    const batPct = (dev.batteryPct !== undefined && dev.batteryPct !== null) ? dev.batteryPct : 100;
-    initialDeviceOptions += `<option value="${dev.deviceId}">&#128241; ${statusDot} ${dev.deviceName || dev.deviceId} [${dev.deviceId}]${ipStr} &bull; &#128267; ${batPct}% (${statusText})</option>\n`;
+    const batPct = (dev.batteryPct !== undefined && dev.batteryPct !== null) ? Number(dev.batteryPct) : 100;
+    const safeDevId = escapeHtml(dev.deviceId);
+    const safeDevName = escapeHtml(dev.deviceName || dev.deviceId);
+    initialDeviceOptions += `<option value="${safeDevId}">&#128241; ${statusDot} ${safeDevName} [${safeDevId}]${ipStr} &bull; &#128267; ${batPct}% (${statusText})</option>\n`;
   }
   if (!initialDeviceOptions) {
     initialDeviceOptions = '<option value="">&#128257; Waiting for Tablets to Connect...</option>';
@@ -2873,6 +2974,16 @@ function buildDashboardHtml() {
       if (modal) modal.style.display = 'none';
     }
 
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
     function renderAlertsModalList() {
       const container = document.getElementById('alertsListContainer');
       if (!container) return;
@@ -2885,11 +2996,11 @@ function buildDashboardHtml() {
         const item = document.createElement('div');
         item.style.cssText = 'background:#1e293b; border:1px solid #475569; border-left:4px solid #f43f5e; border-radius:8px; padding:10px 12px; text-align:left;';
         item.innerHTML = '<div style="display:flex; justify-content:space-between; align-items:center;">' +
-          '<span style="font-weight:700; color:#f43f5e; font-size:0.85rem;">' + (alt.title || 'Security Alert') + '</span>' +
-          '<span style="font-size:0.72rem; color:#94a3b8;">' + alt.timeStr + ' &bull; ' + alt.dateStr + '</span>' +
+          '<span style="font-weight:700; color:#f43f5e; font-size:0.85rem;">' + escapeHtml(alt.title || 'Security Alert') + '</span>' +
+          '<span style="font-size:0.72rem; color:#94a3b8;">' + escapeHtml(alt.timeStr) + ' &bull; ' + escapeHtml(alt.dateStr) + '</span>' +
         '</div>' +
-        '<div style="font-size:0.8rem; color:#f8fafc; margin-top:3px;"><strong>' + alt.deviceName + '</strong> [' + alt.deviceId + ']</div>' +
-        '<div style="font-size:0.75rem; color:#cbd5e1; margin-top:3px;">' + (alt.details || '') + '</div>';
+        '<div style="font-size:0.8rem; color:#f8fafc; margin-top:3px;"><strong>' + escapeHtml(alt.deviceName) + '</strong> [' + escapeHtml(alt.deviceId) + ']</div>' +
+        '<div style="font-size:0.75rem; color:#cbd5e1; margin-top:3px;">' + escapeHtml(alt.details || '') + '</div>';
         container.appendChild(item);
       });
     }
@@ -2947,12 +3058,12 @@ function buildDashboardHtml() {
           item.style.cssText = 'background:#1e293b; border:1px solid #334155; border-radius:8px; padding:10px 12px; display:flex; justify-content:space-between; align-items:center;';
           const isOnline = Boolean(t.online);
           const statusBadge = isOnline ? '<span style="color:#22c55e; font-weight:700;">🟢 Online</span>' : '<span style="color:#ef4444; font-weight:700;">🔴 Offline</span>';
-          const ipStr = t.localIp ? (' • IP: ' + t.localIp) : '';
+          const ipStr = t.localIp ? (' • IP: ' + escapeHtml(t.localIp)) : '';
           
           const infoDiv = document.createElement('div');
           infoDiv.style.textAlign = 'left';
-          infoDiv.innerHTML = '<div style="font-weight:700; color:#f8fafc; font-size:0.88rem;">' + (t.deviceName || t.deviceId) + ' <span style="color:#38bdf8; font-size:0.75rem;">[' + t.deviceId + ']</span></div>' +
-            '<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">' + statusBadge + ipStr + ' &bull; 🔋 ' + t.batteryPct + '%</div>';
+          infoDiv.innerHTML = '<div style="font-weight:700; color:#f8fafc; font-size:0.88rem;">' + escapeHtml(t.deviceName || t.deviceId) + ' <span style="color:#38bdf8; font-size:0.75rem;">[' + escapeHtml(t.deviceId) + ']</span></div>' +
+            '<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">' + statusBadge + ipStr + ' &bull; 🔋 ' + Number(t.batteryPct) + '%</div>';
           item.appendChild(infoDiv);
 
           const delBtn = document.createElement('button');
@@ -4276,6 +4387,48 @@ server.on('error', (err) => {
   }
 });
 
+// Native Secure TLS HTTPS Server (Port 8443)
+const HTTPS_PORT = process.env.HTTPS_PORT || 8443;
+let httpsServer = null;
+
+try {
+  let tlsOptions = null;
+  const p12Path = path.join(__dirname, 'western_portal.p12');
+  const certPath = path.join(__dirname, 'cert.pem');
+  const keyPath = path.join(__dirname, 'key.pem');
+
+  if (fs.existsSync(p12Path)) {
+    tlsOptions = {
+      pfx: fs.readFileSync(p12Path),
+      passphrase: 'western2026',
+      minVersion: 'TLSv1.2',
+      ciphers: 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384',
+      honorCipherOrder: true
+    };
+  } else if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+    tlsOptions = {
+      cert: fs.readFileSync(certPath),
+      key: fs.readFileSync(keyPath),
+      minVersion: 'TLSv1.2',
+      ciphers: 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384',
+      honorCipherOrder: true
+    };
+  }
+
+  if (tlsOptions) {
+    httpsServer = https.createServer(tlsOptions, (req, res) => handleHttpRequest(req, res, true));
+    httpsServer.on('upgrade', handleWsUpgrade);
+    httpsServer.on('error', (err) => {
+      console.error('[HTTPS SERVER ERROR]', err ? (err.message || err) : 'Error');
+    });
+    httpsServer.listen(HTTPS_PORT, '0.0.0.0', () => {
+      console.log(`[+] 🔒 Native Secure HTTPS TLS Server running on https://0.0.0.0:${HTTPS_PORT}`);
+    });
+  }
+} catch (tlsErr) {
+  console.error('[!] Failed to initialize Native HTTPS server:', tlsErr.message);
+}
+
 // Standard Port 80 redirects immediately to HTTPS Portal
 try {
   const port80Server = http.createServer((req, res) => {
@@ -4291,6 +4444,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('==============================================================');
   console.log(' WESTERN APPLOCK - IT FLEET MONITOR SERVER ACTIVE');
   console.log(' Direct Local Portal : http://localhost:' + PORT);
+  console.log(' Direct HTTPS Portal : https://localhost:' + HTTPS_PORT);
   console.log(' Default PIN Code    : ' + DEFAULT_ADMIN_CODE);
   console.log('==============================================================');
   if (process.env.RENDER_EXTERNAL_URL) {
