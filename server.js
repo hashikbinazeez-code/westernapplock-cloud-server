@@ -1843,6 +1843,23 @@ function buildDashboardHtml() {
     </div>
   </div>
 
+  <!-- Dual Snapshot Result Modal -->
+  <div class="app-overlay" id="dualSnapModal" style="display:none; z-index:10000000; background:rgba(11,17,32,0.92); backdrop-filter:blur(8px);">
+    <div class="app-card-modal" style="max-width:540px; text-align:center; border:2px solid #0284c7; box-shadow:0 25px 60px rgba(0,0,0,0.85);">
+      <div style="font-size:2.8rem; margin-bottom:4px;">📸</div>
+      <h3 style="margin:0 0 6px 0; color:#f8fafc; font-size:1.25rem; font-weight:800;">Dual Snapshot Captured!</h3>
+      <div style="font-size:0.85rem; color:#94a3b8; margin-bottom:16px;">Both Screen Mirror and Live Camera have been captured simultaneously.</div>
+      <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:16px;">
+        <button class="btn-auth" id="btnDlDual" style="background:#0284c7; padding:10px 18px; font-size:0.92rem; font-weight:700;">🖼️ Download Combined Dual Image (Screen + Cam)</button>
+        <div style="display:flex; gap:10px;">
+          <button class="btn-hdr" id="btnDlScreen" style="flex:1; padding:10px 12px; background:#1e293b; border:1px solid #334155; font-weight:700; color:#38bdf8;">🖥️ Download Screen Only</button>
+          <button class="btn-hdr" id="btnDlCam" style="flex:1; padding:10px 12px; background:#1e293b; border:1px solid #334155; font-weight:700; color:#06b6d4;">🤳 Download Camera Only</button>
+        </div>
+      </div>
+      <button class="btn-ctrl" onclick="closeDualSnapModal()" style="padding:6px 20px; border-radius:6px; cursor:pointer;">✖ Close</button>
+    </div>
+  </div>
+
   <header>
     <!-- Row 1: Brand (Left), Device Badges (Center), Status & Logout (Right) -->
     <div class="top-row">
@@ -1855,15 +1872,10 @@ function buildDashboardHtml() {
       </div>
 
       <div class="header-badges">
-        <select id="fleetSelect" class="device-info" onchange="selectFleetDevice(this.value)" title="Switch Active Tablet" style="display:inline-flex; cursor:pointer; outline:none; border-color:#38bdf8; color:#38bdf8; font-weight:700;">
-          ${initialDeviceOptions}
-        </select>
-        <button type="button" onclick="openRemoveDeviceModal('fleetSelect')" class="device-info" style="cursor:pointer; border-color:#ef4444; color:#f87171; font-weight:700; background:transparent;" title="Select a tablet in dropdown and click here to remove">&#128465; Remove Selected</button>
-        <div class="device-info" id="headerDeviceName">📱 Shola Test Tab</div>
+        <div class="device-info" id="headerDeviceName">📱 Tablet</div>
         <div class="device-info" id="headerBattery">🔋 --</div>
         <div class="device-info green" id="statScreen">📱 Screen: ON</div>
-        <button type="button" onclick="openAlertsModal()" id="btnAlertsBell" class="device-info" style="cursor:pointer; border-color:#f43f5e; color:#f43f5e; font-weight:700; background:transparent; display:inline-flex; align-items:center; gap:4px;" title="View Security Alerts">&#128276; Alerts (<span id="alertCountBadge">0</span>)</button>
-        <div class="device-info green" id="statCloud" style="cursor:default;" title="Fleet Web Shield Online">🛡️ Online</div>
+        <div class="device-info green" id="statCloud" style="cursor:default;" title="Fleet Web Shield Online">🛡️ Shield: ACTIVE</div>
         <div class="device-info" id="statViewers">👁️ 1 Active</div>
       </div>
 
@@ -1900,7 +1912,7 @@ function buildDashboardHtml() {
         <button class="btn-hdr" onclick="openAppsModal()" title="Open App">📱 Open App</button>
         <button class="btn-hdr" onclick="openWifiModal()" title="Add Wi-Fi">➕ Add Wi-Fi</button>
         <button class="btn-hdr" onclick="openUpdateModal()" title="Push OTA Update">📦 Push Update</button>
-        <button class="btn-hdr" onclick="takeSnapshot()" title="Screen Snapshot">📸 Snap</button>
+        <button class="btn-hdr" id="btnMainSnap" onclick="takeSnapshot()" title="Capture Snapshot">📸 Snap Both</button>
         <button class="btn-hdr" onclick="wakeDeviceScreen()" title="Wake Screen">💡 Wake Screen</button>
         <button class="btn-hdr btn-reboot" onclick="remoteRestart()" title="Remote Reboot">⚡ Reboot</button>
         <button class="btn-hdr btn-danger" onclick="openSosModal()" title="Send Emergency SOS Alert (10s User Lockout)">🚨 Emergency SOS</button>
@@ -3146,6 +3158,16 @@ function buildDashboardHtml() {
       if (rotLbl) {
         rotLbl.innerText = cameraRotation + '°' + (isCameraFlipped ? ' (🪞)' : '');
       }
+      const btnSnap = document.getElementById('btnMainSnap');
+      if (btnSnap) {
+        if (isDualCameraOpen) {
+          btnSnap.innerHTML = '📸 Snap Both';
+          btnSnap.title = 'Take Dual Snapshot of Screen and Camera simultaneously';
+        } else {
+          btnSnap.innerHTML = '📸 Snap';
+          btnSnap.title = 'Take Screen Snapshot';
+        }
+      }
     }
 
     function loadCameraStream() {
@@ -3346,10 +3368,232 @@ function buildDashboardHtml() {
       window.location.href = window.location.origin + window.location.pathname;
     }
 
-    function takeSnapshot() {
+    function triggerFileDownload(blob, filename) {
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        try { document.body.removeChild(link); } catch (_) {}
+        URL.revokeObjectURL(link.href);
+      }, 2500);
+    }
+
+    function closeDualSnapModal() {
+      const modal = document.getElementById('dualSnapModal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    function showDualSnapshotModal(dualBlob, sBlob, cBlob, nowTs) {
+      const modal = document.getElementById('dualSnapModal');
+      if (!modal) return;
+      modal.style.display = 'flex';
+
+      const btnDual = document.getElementById('btnDlDual');
+      const btnScreen = document.getElementById('btnDlScreen');
+      const btnCam = document.getElementById('btnDlCam');
+
+      if (btnDual) {
+        btnDual.onclick = () => triggerFileDownload(dualBlob, 'western_dual_snap_' + nowTs + '.jpg');
+      }
+      if (btnScreen) {
+        btnScreen.onclick = () => triggerFileDownload(sBlob, 'western_screen_' + nowTs + '.jpg');
+      }
+      if (btnCam) {
+        btnCam.onclick = () => triggerFileDownload(cBlob, 'western_camera_' + nowTs + '.jpg');
+      }
+    }
+
+    function drawCardImageRotated(ctx, img, x, y, boxW, boxH, rotationDeg, isFlipped) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x, y, boxW, boxH);
+      ctx.clip();
+
+      ctx.translate(x + boxW / 2, y + boxH / 2);
+      if (rotationDeg) {
+        ctx.rotate((rotationDeg * Math.PI) / 180);
+      }
+      if (isFlipped) {
+        ctx.scale(-1, 1);
+      }
+
+      const isSideways = (rotationDeg % 180 !== 0);
+      const visualTargetW = isSideways ? boxH : boxW;
+      const visualTargetH = isSideways ? boxW : boxH;
+
+      const nw = img.naturalWidth || 640;
+      const nh = img.naturalHeight || 480;
+
+      const scale = Math.min(visualTargetW / nw, visualTargetH / nh);
+      const dw = nw * scale;
+      const dh = nh * scale;
+
+      ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+      ctx.restore();
+    }
+
+    async function captureDualSnapshotCombined(code) {
+      const dev = devQuery();
+      const t = Date.now();
+
+      showFeedback('⏳ Capturing live Screen & Camera frames...', true);
+
+      const [screenRes, camRes] = await Promise.all([
+        fetch('/snapshot?code=' + encodeURIComponent(code) + dev + '&_t=' + t),
+        fetch('/api/camera/snapshot?lens=' + currentCameraLens + '&code=' + encodeURIComponent(code) + dev + '&_t=' + t)
+      ]);
+
+      const sBlob = await screenRes.blob();
+      const cBlob = await camRes.blob();
+
+      const sUrl = URL.createObjectURL(sBlob);
+      const cUrl = URL.createObjectURL(cBlob);
+
+      const sImg = new Image();
+      const cImg = new Image();
+
+      await Promise.all([
+        new Promise((res, rej) => { sImg.onload = res; sImg.onerror = rej; sImg.src = sUrl; }),
+        new Promise((res, rej) => { cImg.onload = res; cImg.onerror = rej; cImg.src = cUrl; })
+      ]);
+
+      const sRot = ((screenRotation % 360) + 360) % 360;
+      const cRot = ((cameraRotation % 360) + 360) % 360;
+      const sIsSideways = (sRot % 180 !== 0);
+      const cIsSideways = (cRot % 180 !== 0);
+
+      const sVisW = sIsSideways ? sImg.naturalHeight : sImg.naturalWidth;
+      const sVisH = sIsSideways ? sImg.naturalWidth : sImg.naturalHeight;
+      const cVisW = cIsSideways ? cImg.naturalHeight : cImg.naturalWidth;
+      const cVisH = cIsSideways ? cImg.naturalWidth : cImg.naturalHeight;
+
+      const targetH = 800;
+      const sScale = targetH / (sVisH || 1);
+      const cScale = targetH / (cVisH || 1);
+
+      const sDrawW = Math.max(380, Math.round((sVisW || 600) * sScale));
+      const sDrawH = targetH;
+      const cDrawW = Math.max(500, Math.round((cVisW || 800) * cScale));
+      const cDrawH = targetH;
+
+      const pad = 24;
+      const gap = 20;
+      const headerH = 76;
+      const labelH = 34;
+      const footerH = 36;
+
+      const totalW = pad * 2 + sDrawW + gap + cDrawW;
+      const totalH = pad + headerH + labelH + targetH + footerH + pad;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = totalW;
+      canvas.height = totalH;
+      const ctx = canvas.getContext('2d');
+
+      // Background
+      ctx.fillStyle = '#0b1120';
+      ctx.fillRect(0, 0, totalW, totalH);
+
+      // Header background
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(pad, pad, totalW - pad * 2, headerH);
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(pad, pad, totalW - pad * 2, headerH);
+
+      // Header text
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = 'bold 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      ctx.fillText('WESTERN INTERNATIONAL GROUP', pad + 16, pad + 32);
+
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = 'bold 15px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      ctx.fillText('DUAL SNAPSHOT • LIVE SCREEN MIRROR & CAMERA STREAM', pad + 16, pad + 56);
+
+      const devEl = document.getElementById('headerDeviceName');
+      const devName = devEl ? devEl.innerText.replace('📱', '').trim() : 'Western Tablet';
+      const timeStr = new Date().toLocaleString();
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '13px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText('Device: ' + devName, totalW - pad - 16, pad + 32);
+      ctx.fillText(timeStr, totalW - pad - 16, pad + 54);
+      ctx.textAlign = 'left';
+
+      // Left Panel: Screen Mirror
+      const sX = pad;
+      const sY = pad + headerH + 12;
+      ctx.fillStyle = '#0284c7';
+      ctx.font = 'bold 14px sans-serif';
+      ctx.fillText('🖥️ TABLET SCREEN MIRROR (' + sRot + '°)', sX, sY + 18);
+
+      const sCardY = sY + labelH;
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(sX, sCardY, sDrawW, sDrawH);
+      ctx.strokeStyle = '#334155';
+      ctx.strokeRect(sX, sCardY, sDrawW, sDrawH);
+      drawCardImageRotated(ctx, sImg, sX, sCardY, sDrawW, sDrawH, sRot, isScreenFlipped);
+
+      // Right Panel: Camera
+      const cX = sX + sDrawW + gap;
+      const cY = sY;
+      ctx.fillStyle = '#06b6d4';
+      ctx.font = 'bold 14px sans-serif';
+      ctx.fillText('🤳 LIVE CAMERA (' + (currentCameraLens === 'front' ? 'FRONT' : 'REAR') + ' • ' + cRot + '°)', cX, cY + 18);
+
+      const cCardY = cY + labelH;
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(cX, cCardY, cDrawW, cDrawH);
+      ctx.strokeStyle = '#334155';
+      ctx.strokeRect(cX, cCardY, cDrawW, cDrawH);
+      drawCardImageRotated(ctx, cImg, cX, cCardY, cDrawW, cDrawH, cRot, isCameraFlipped);
+
+      // Footer
+      ctx.fillStyle = '#64748b';
+      ctx.font = '12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Western AppLock Enterprise Shield • IT Fleet Security Riyadh • Direct Live Dual Capture', totalW / 2, totalH - pad - 10);
+      ctx.textAlign = 'left';
+
+      const nowTs = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      canvas.toBlob((dualBlob) => {
+        if (dualBlob) {
+          triggerFileDownload(dualBlob, 'western_dual_snap_' + nowTs + '.jpg');
+          showDualSnapshotModal(dualBlob, sBlob, cBlob, nowTs);
+        }
+        URL.revokeObjectURL(sUrl);
+        URL.revokeObjectURL(cUrl);
+        showFeedback('✅ Dual Snapshot saved! (Screen + Camera captured)', true);
+      }, 'image/jpeg', 0.95);
+    }
+
+    async function takeSnapshot() {
       const code = getAuthCode();
-      if (!code) return;
-      window.open('/snapshot?code=' + encodeURIComponent(code) + devQuery() + '&t=' + Date.now(), '_blank');
+      if (!code) {
+        showFeedback('⚠️ Remote Access Passcode required', false);
+        checkAuth();
+        return;
+      }
+
+      if (!isDualCameraOpen) {
+        window.open('/snapshot?code=' + encodeURIComponent(code) + devQuery() + '&t=' + Date.now(), '_blank');
+        showFeedback('📸 Screen snapshot captured', true);
+        return;
+      }
+
+      // BOTH SCREEN AND CAMERA ARE OPEN -> SNAP BOTH!
+      showFeedback('📸 Capturing Dual Snapshot (Screen + Camera)...', true);
+      try {
+        await captureDualSnapshotCombined(code);
+      } catch (err) {
+        console.error('Dual snapshot error, falling back:', err);
+        window.open('/snapshot?code=' + encodeURIComponent(code) + devQuery() + '&t=' + Date.now(), '_blank');
+        setTimeout(() => {
+          window.open('/api/camera/snapshot?lens=' + currentCameraLens + '&code=' + encodeURIComponent(code) + devQuery() + '&t=' + Date.now(), '_blank');
+        }, 350);
+      }
     }
 
     function reloadStream() {
@@ -4045,10 +4289,9 @@ try {
 server.listen(PORT, '0.0.0.0', () => {
   startLocalCustomDomainResponder();
   console.log('==============================================================');
-  console.log(' WESTERN APPLOCK - ANY-NETWORK CLOUD RELAY SERVER ACTIVE');
-  console.log(' Live HTTPS Portal : https://is.gd/westernintapplock');
-  console.log(' Direct Localhost  : Blocked -> Redirects to https://is.gd/westernintapplock');
-  console.log(' Default PIN Code  : ' + DEFAULT_ADMIN_CODE);
+  console.log(' WESTERN APPLOCK - IT FLEET MONITOR SERVER ACTIVE');
+  console.log(' Direct Local Portal : http://localhost:' + PORT);
+  console.log(' Default PIN Code    : ' + DEFAULT_ADMIN_CODE);
   console.log('==============================================================');
   if (process.env.RENDER_EXTERNAL_URL) {
     currentPublicHttpsUrl = process.env.RENDER_EXTERNAL_URL.replace(/\/+$/, '');
