@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Western AppLock KSA - Live Cloud Portal</title>
+  <title>Western AppLock KSA - IT Fleet Portal</title>
   <style>
     * { box-sizing: border-box; }
     html, body {
@@ -11,209 +11,222 @@
       padding: 0;
       width: 100%;
       height: 100%;
-      overflow: hidden;
       background: #0b1120;
       color: #f8fafc;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }
-    #loadingContainer {
       display: flex;
-      flex-direction: column;
       align-items: center;
       justify-content: center;
-      height: 100vh;
-      text-align: center;
-      padding: 20px;
     }
     .card {
       background: #1e293b;
       border: 1px solid #334155;
       border-radius: 20px;
-      padding: 36px 28px;
-      max-width: 440px;
-      width: 100%;
+      padding: 36px 30px;
+      max-width: 480px;
+      width: 90%;
+      text-align: center;
       box-shadow: 0 25px 60px rgba(0,0,0,0.7);
     }
     .logo {
-      width: 64px;
-      height: 64px;
+      width: 68px;
+      height: 68px;
       border-radius: 50%;
       margin: 0 auto 16px;
       display: block;
       border: 2px solid #38bdf8;
+      object-fit: contain;
     }
-    .spinner {
-      width: 40px;
-      height: 40px;
-      border: 4px solid #334155;
-      border-top-color: #38bdf8;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      margin: 16px auto;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    h2 { margin: 0 0 6px; font-size: 1.3rem; color: #fff; }
-    p { margin: 8px 0; font-size: 0.9rem; color: #94a3b8; line-height: 1.4; }
-    .status-badge {
+    .badge {
       display: inline-block;
-      padding: 6px 14px;
+      padding: 5px 14px;
       border-radius: 20px;
-      font-size: 0.8rem;
-      font-weight: 600;
-      margin-top: 10px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      margin-bottom: 12px;
       background: #0369a1;
       color: #e0f2fe;
     }
+    h2 { margin: 0 0 6px; font-size: 1.35rem; color: #fff; font-weight: 800; }
+    .sub { font-size: 0.82rem; color: #94a3b8; margin-bottom: 20px; }
+    .btn-group {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin: 20px 0;
+    }
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 14px 20px;
+      border-radius: 12px;
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 0.92rem;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s ease;
+    }
+    .btn-primary {
+      background: #0284c7;
+      color: #ffffff;
+      box-shadow: 0 4px 12px rgba(2, 132, 199, 0.4);
+    }
+    .btn-primary:hover { background: #0369a1; }
+    .btn-secondary {
+      background: #334155;
+      color: #f1f5f9;
+    }
+    .btn-secondary:hover { background: #475569; }
+    .server-status {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      padding: 8px 14px;
+      border-radius: 8px;
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      margin-bottom: 16px;
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #fbbf24;
+    }
+    .dot.online { background: #22c55e; }
     .instructions {
-      display: none;
-      margin-top: 20px;
-      padding: 14px;
+      text-align: left;
       background: #0f172a;
       border: 1px solid #334155;
       border-radius: 12px;
-      text-align: left;
-      font-size: 0.82rem;
+      padding: 14px 16px;
+      font-size: 0.8rem;
       color: #cbd5e1;
+      line-height: 1.5;
     }
+    .instructions ol { margin: 6px 0 0 0; padding-left: 20px; }
     .instructions b { color: #38bdf8; }
-    .btn {
-      display: inline-block;
-      margin-top: 18px;
-      padding: 12px 24px;
-      background: #0284c7;
+    .ip-box {
+      margin-top: 14px;
+      display: flex;
+      gap: 8px;
+    }
+    .ip-box input {
+      flex: 1;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid #475569;
+      background: #0f172a;
+      color: #fff;
+      font-size: 0.85rem;
+    }
+    .ip-box button {
+      padding: 10px 16px;
+      border-radius: 8px;
+      border: none;
+      background: #2563eb;
       color: #fff;
       font-weight: 700;
-      text-decoration: none;
-      border-radius: 10px;
       cursor: pointer;
-      border: none;
-    }
-    .btn:hover { background: #0369a1; }
-
-    #cloudFrame {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      border: none;
-      z-index: 999999;
-      background: #0b1120;
     }
   </style>
 </head>
 <body>
-  <div id="loadingContainer">
-    <div class="card">
-      <img src="logo_western.png" alt="Western AppLock" class="logo" onerror="this.style.display='none'" />
-      <h2>Western AppLock KSA</h2>
-      <div id="loader" class="spinner"></div>
-      <div id="statusBadge" class="status-badge">Connecting to Live Cloud Portal...</div>
-      <p id="statusMsg">Locating active tablet monitor...</p>
+  <div class="card">
+    <img src="logo_western.png" alt="Western AppLock" class="logo" onerror="this.style.display='none'" />
+    <div class="badge">WESTERN INTERNATIONAL GROUP</div>
+    <h2>IT Fleet Remote Portal</h2>
+    <div class="sub">Direct Secure Management Console &bull; KSA Riyadh</div>
 
-      <div id="instructionsBox" class="instructions">
-        <div style="font-weight:bold; margin-bottom:6px; color:#f87171;">⚠️ Server is not running on your laptop</div>
-        <div>To start the server without Antigravity:</div>
-        <ol style="margin: 8px 0; padding-left: 20px;">
-          <li>Open: <b>D:\Last\30-12pm\2 Web Host\</b></li>
-          <li>Double-click: <b>START_SERVER.bat</b></li>
-        </ol>
-        <div style="font-size:0.75rem; color:#94a3b8;">This page will auto-connect as soon as the server opens!</div>
+    <div class="server-status" id="statusBox">
+      <span class="dot" id="statusDot"></span>
+      <span id="statusText">Checking local server status...</span>
+    </div>
+
+    <div class="btn-group">
+      <a id="btnHttps" href="https://localhost:8443" class="btn btn-primary">
+        🔒 Open Secure Direct HTTPS (Port 8443)
+      </a>
+      <a id="btnHttp" href="http://localhost:8080" class="btn btn-secondary">
+        🌐 Open Direct Local HTTP (Port 8080)
+      </a>
+    </div>
+
+    <div class="ip-box">
+      <input type="text" id="customIp" placeholder="Custom IP / Host (e.g. 192.168.8.234)" />
+      <button onclick="connectCustom()">Connect</button>
+    </div>
+
+    <div class="instructions" id="instructionsBox" style="margin-top: 16px;">
+      <div style="font-weight:bold; margin-bottom:4px; color:#38bdf8;">📌 Starting the Monitor Server:</div>
+      <div>If server is not running on your laptop:</div>
+      <ol>
+        <li>Open <b>D:\Last\30-12pm\2 Web Host\</b></li>
+        <li>Double-click <b>START_SERVER.bat</b></li>
+      </ol>
+      <div style="margin-top:8px; font-size:0.75rem; color:#94a3b8;">
+        Default Master PIN: <b>7866</b> &bull; Direct TLS 2048-bit Encrypted
       </div>
-
-      <button id="retryBtn" class="btn" style="display:none;" onclick="discoverAndConnect()">Retry Now</button>
     </div>
   </div>
 
-  <iframe id="cloudFrame" src="about:blank" allow="fullscreen; clipboard-read; clipboard-write; camera; microphone"></iframe>
-
   <script>
-    let isConnected = false;
+    async function checkServer() {
+      const dot = document.getElementById('statusDot');
+      const text = document.getElementById('statusText');
 
-    async function discoverAndConnect() {
-      if (isConnected) return;
-
-      const loader = document.getElementById('loader');
-      const badge = document.getElementById('statusBadge');
-      const msg = document.getElementById('statusMsg');
-      const instr = document.getElementById('instructionsBox');
-      const retryBtn = document.getElementById('retryBtn');
-      const iframe = document.getElementById('cloudFrame');
-      const loadingContainer = document.getElementById('loadingContainer');
-
-      badge.textContent = 'Connecting to Live Cloud Portal...';
-      badge.style.background = '#0369a1';
-      msg.textContent = 'Checking Cloudflare tunnel...';
-      loader.style.display = 'block';
-      instr.style.display = 'none';
-      retryBtn.style.display = 'none';
-
-      // 1. Fetch fresh link from GitHub Raw FIRST (100% Reliable, Zero Quota Limit)
-      const testCandidate = async (candidate) => {
-        if (!candidate || !candidate.startsWith('https://')) return false;
-        try {
-          const ctrl = new AbortController();
-          const t = setTimeout(() => ctrl.abort(), 2500);
-          const check = await fetch(candidate + '/api/status', { signal: ctrl.signal, cache: 'no-store' });
-          clearTimeout(t);
-          if (check && check.ok) {
-            const data = await check.json();
-            if (data && (data.status || data.fleet)) {
-              if (!isConnected) {
-                isConnected = true;
-                badge.textContent = 'Connected 🟢';
-                badge.style.background = '#15803d';
-                msg.textContent = 'Loading live portal...';
-                iframe.src = candidate;
-                loadingContainer.style.display = 'none';
-                iframe.style.display = 'block';
-              }
-              return true;
-            }
-          }
-        } catch (_) {}
-        return false;
-      };
-
-      // Check GitHub Raw link first
+      // Test local HTTPS 8443 first
       try {
-        const ghRes = await fetch('https://raw.githubusercontent.com/hashikbinazeez-code/westernapplock-cloud-server/main/CURRENT_PUBLIC_HTTPS_LINK.txt?_t=' + Date.now(), { cache: 'no-store' });
-        if (ghRes && ghRes.ok) {
-          const rawUrl = (await ghRes.text()).trim();
-          const validUrl = rawUrl.split('\n').map(s => s.trim()).filter(s => s.startsWith('https://') && s.includes('trycloudflare.com'))[0];
-          if (validUrl) {
-            const ok = await testCandidate(validUrl);
-            if (ok) return;
-          }
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 1200);
+        const res = await fetch('https://localhost:8443/api/status', { signal: ctrl.signal, cache: 'no-store' });
+        clearTimeout(t);
+        if (res.ok) {
+          dot.className = 'dot online';
+          text.innerHTML = 'Server Active 🟢 Direct HTTPS (8443)';
+          window.location.replace('https://localhost:8443');
+          return;
         }
       } catch (_) {}
 
-      // Fallback check ntfy
+      // Test local HTTP 8080
       try {
-        const ntfyRes = await fetch('https://ntfy.sh/western_ksa_3125210946/raw?poll=1&since=all&_t=' + Date.now(), { cache: 'no-store' });
-        if (ntfyRes && ntfyRes.ok) {
-          const lines = (await ntfyRes.text()).trim().split('\n').map(s => s.trim()).filter(s => s.startsWith('https://') && s.includes('trycloudflare.com'));
-          const latestNtfy = lines.reverse().slice(0, 3);
-          for (const cand of latestNtfy) {
-            const ok = await testCandidate(cand);
-            if (ok) return;
-          }
+        const ctrl2 = new AbortController();
+        const t2 = setTimeout(() => ctrl2.abort(), 1200);
+        const res2 = await fetch('http://localhost:8080/api/status', { signal: ctrl2.signal, cache: 'no-store' });
+        clearTimeout(t2);
+        if (res2.ok) {
+          dot.className = 'dot online';
+          text.innerHTML = 'Server Active 🟢 Direct HTTP (8080)';
+          window.location.replace('http://localhost:8080');
+          return;
         }
       } catch (_) {}
 
-      // 3. If no candidate responded yet, show instructions and auto-retry
-      loader.style.display = 'none';
-      badge.textContent = 'Server Starting / Offline 🔴';
-      badge.style.background = '#b91c1c';
-      msg.textContent = 'Waiting for Cloud Relay Server... (Keep START_SERVER.bat open)';
-      instr.style.display = 'block';
-      retryBtn.style.display = 'inline-block';
-
-      setTimeout(discoverAndConnect, 2500);
+      dot.style.background = '#f59e0b';
+      text.innerHTML = 'Direct Connection Ready &bull; Select Mode Below';
     }
 
-    window.addEventListener('DOMContentLoaded', discoverAndConnect);
+    function connectCustom() {
+      const val = (document.getElementById('customIp').value || '').trim();
+      if (!val) {
+        alert('Please enter an IP address or hostname');
+        return;
+      }
+      let url = val;
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        url = 'https://' + url + ':8443';
+      }
+      window.location.href = url;
+    }
+
+    window.addEventListener('DOMContentLoaded', checkServer);
   </script>
 </body>
 </html>
