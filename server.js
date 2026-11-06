@@ -1075,22 +1075,6 @@ const server = http.createServer((req, res) => {
 
   // 8. MAIN WEB PORTAL UI
   if (pathname === '/' || pathname.startsWith('/index')) {
-    const isCloudTunnel = Boolean(req.headers['cf-ray'] || req.headers['cf-connecting-ip'] || (req.headers['x-forwarded-proto'] === 'https'));
-    const isDirectLocal = !isCloudTunnel && Boolean(
-      (req.headers.host && (req.headers.host.includes('localhost') || req.headers.host.includes('127.0.0.1'))) ||
-      req.socket.remoteAddress === '127.0.0.1' ||
-      req.socket.remoteAddress === '::1' ||
-      req.socket.remoteAddress === '::ffff:127.0.0.1'
-    );
-
-    // PERMANENTLY HARD-BLOCK direct localhost:8080 - TERMINATE SOCKET IMMEDIATELY (ERR_EMPTY_RESPONSE)
-    if (isDirectLocal) {
-      try {
-        req.socket.destroy();
-      } catch (_) {}
-      return;
-    }
-
     const html = buildDashboardHtml();
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
@@ -1571,9 +1555,6 @@ function buildDashboardHtml() {
       <input type="password" id="remoteCodeInput" class="auth-input" placeholder="••••" onkeydown="if(event.key==='Enter') submitAuth()" />
       <button class="btn-auth" onclick="submitAuth()">Verify &amp; Connect 🔑</button>
       <div id="authError" class="auth-error"></div>
-      <div style="margin-top:14px; font-size:0.75rem; color:#64748b; text-align:center;">
-        Live Cloud Portal: <a href="https://is.gd/westernintapplock" target="_blank" style="color:#38bdf8; text-decoration:none; font-weight:600;">https://is.gd/westernintapplock</a>
-      </div>
     </div>
   </div>
 
@@ -1882,7 +1863,7 @@ function buildDashboardHtml() {
         <div class="device-info" id="headerBattery">🔋 --</div>
         <div class="device-info green" id="statScreen">📱 Screen: ON</div>
         <button type="button" onclick="openAlertsModal()" id="btnAlertsBell" class="device-info" style="cursor:pointer; border-color:#f43f5e; color:#f43f5e; font-weight:700; background:transparent; display:inline-flex; align-items:center; gap:4px;" title="View Security Alerts">&#128276; Alerts (<span id="alertCountBadge">0</span>)</button>
-          <div class="device-info green" id="statCloud" onclick="openCloudModal()" style="cursor:pointer;" title="Click to configure Any-Network Cloud / HTTPS Relay">☁️ Cloud HTTPS: ON</div>
+        <div class="device-info green" id="statCloud" style="cursor:default;" title="Fleet Web Shield Online">🛡️ Online</div>
         <div class="device-info" id="statViewers">👁️ 1 Active</div>
       </div>
 
@@ -1918,7 +1899,6 @@ function buildDashboardHtml() {
         <span class="group-label">TOOLS</span>
         <button class="btn-hdr" onclick="openAppsModal()" title="Open App">📱 Open App</button>
         <button class="btn-hdr" onclick="openWifiModal()" title="Add Wi-Fi">➕ Add Wi-Fi</button>
-        <button class="btn-hdr btn-accent" onclick="openCloudModal()" title="Configure Any-Network Cloud Relay &amp; Mesh IP">☁️ Cloud / Any-Net</button>
         <button class="btn-hdr" onclick="openUpdateModal()" title="Push OTA Update">📦 Push Update</button>
         <button class="btn-hdr" onclick="takeSnapshot()" title="Screen Snapshot">📸 Snap</button>
         <button class="btn-hdr" onclick="wakeDeviceScreen()" title="Wake Screen">💡 Wake Screen</button>
@@ -2004,7 +1984,7 @@ function buildDashboardHtml() {
 
   <script>
     let selectedDeviceId = '';
-    let isDualCameraOpen = localStorage.getItem('dual_camera_open') === 'true';
+    let isDualCameraOpen = localStorage.getItem('dual_camera_open') !== 'false';
     let currentCameraLens = localStorage.getItem('camera_lens') || 'front';
     let cameraRotation = parseInt(localStorage.getItem('camera_rot') || (currentCameraLens === 'front' ? '270' : '90'), 10);
     let isCameraFlipped = localStorage.getItem('camera_flip') !== null ? (localStorage.getItem('camera_flip') === 'true') : (currentCameraLens === 'front');
@@ -3478,16 +3458,8 @@ function buildDashboardHtml() {
 
           const cloudBadge = document.getElementById('statCloud');
           if (cloudBadge) {
-            if (data.cloudConnected) {
-              cloudBadge.innerText = '☁️ Cloud HTTPS: ON';
-              cloudBadge.className = 'device-info green';
-            } else if (data.meshIp) {
-              cloudBadge.innerText = '🌐 Mesh: ' + data.meshIp;
-              cloudBadge.className = 'device-info green';
-            } else {
-              cloudBadge.innerText = '☁️ Cloud Standby';
-              cloudBadge.className = 'device-info';
-            }
+            cloudBadge.innerText = '🛡️ Shield: ACTIVE';
+            cloudBadge.className = 'device-info green';
           }
 
           if (data.viewers !== undefined) {
